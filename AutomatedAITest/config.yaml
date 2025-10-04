@@ -1,0 +1,22 @@
+grpc:
+  host: localhost
+  port: 50051
+ai_core:
+  executable: "C:/Program Files/AICORE/AICORE.exe"
+  config_file: "C:/AIcoreProjects/DetectMode/detectmode.cfg"
+  timeout_ms: 10000
+  parallel_instances: 1
+video:
+  device_name: "FrontCam"
+  driver_id: "IntegratedCamera0"
+  resolution: "1920x1080"
+test:
+  model_name: "DetectModeModel"
+  ta_executable: "C:/Program Files/PROVEtech/PROVEtechTA.exe"
+  output_dir: "./results"
+  log_signals:
+    - "IconDetection.Result"
+    - "IconDetection.Score"
+logging:
+  level: "INFO"
+  file: "./logs/automation.log"
