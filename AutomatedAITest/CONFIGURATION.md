@@ -22,9 +22,13 @@ ai_core:
   timeout_ms: 10000
   parallel_instances: 1
 video:
+  mode: "device"
   device_name: "FrontCam"
   driver_id: "IntegratedCamera0"
   resolution: "1920x1080"
+  # file_path: "D:/Recordings/frontcam.mp4"
+  # webcam_index: 0
+  loop_file: false
 test:
   model_name: "DetectModeModel"
   ta_executable: "C:/Program Files/PROVEtech/PROVEtechTA.exe"
@@ -57,9 +61,13 @@ logging:
 
 | Key | Default | Description |
 | --- | ------- | ----------- |
+| `mode` | `device` | Ingestion mode: `device` keeps the legacy capture card routing, `webcam` uses the local PC webcam, and `file` replays a recorded video. Override with `--video-mode`. |
 | `device_name` | `FrontCam` | Logical PROVEtech:TA video source name. Override with `--video-source`. |
 | `driver_id` | `IntegratedCamera0` | Driver identifier used by PROVEtech:TA to bind the device. Override with `--video-driver`. |
 | `resolution` | `1920x1080` | Capture resolution (WidthxHeight). Override with `--resolution`. |
+| `file_path` | _unset_ | Absolute or relative path to the recorded footage when `mode` is `file`. Override with `--video-file`. |
+| `webcam_index` | _unset_ | Numeric index of the Windows webcam to bind when `mode` is `webcam`. Override with `--webcam-index`. |
+| `loop_file` | `false` | Loop recorded footage instead of stopping at the end. Toggle via `--loop-video` / `--no-loop-video`. |
 
 ### test
 
@@ -91,6 +99,17 @@ python automate_test.py `
 
 # Temporarily switch to a remote PROVEtech:TA instance
 python automate_test.py --grpc-host 10.10.1.20 --grpc-port 51000
+```
+
+To temporarily stream from the PC webcam or replay a file without editing the
+YAML:
+
+```powershell
+# Webcam capture
+python automate_test.py --video-mode webcam --webcam-index 0
+
+# Recorded footage on loop
+python automate_test.py --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
 ```
 
 ## Advanced Scenarios
@@ -128,10 +147,21 @@ etc.).
 
 ### Changing Video Source
 
-Use `--video-source` and `--video-driver` to point at a different camera without
-modifying YAML. If resolution differs per sensor, append `--resolution 1280x720`
-(or another valid format). The script applies the changes via
-`SystemModifyVideoAudioConfig` before starting the measurement.
+Select the ingestion mode with `video.mode` (or `--video-mode`).
+
+- `device` — Default capture card / hardware input workflow. Combine with
+  `--video-source`, `--video-driver`, and `--resolution` to target the desired
+  channel.
+- `webcam` — Streams directly from the Windows webcam stack. Provide the index
+  with `video.webcam_index` or `--webcam-index 0`. The script preserves legacy
+  overrides such as `--video-source` when the logical name in PROVEtech:TA must
+  remain stable.
+- `file` — Replays recorded footage from disk. Supply the path through
+  `video.file_path` or `--video-file D:/Recordings/run01.mp4` and optionally
+  loop playback using `video.loop_file` / `--loop-video`.
+
+When switching modes, the automation repackages the video configuration payload
+accordingly before invoking `SystemModifyVideoAudioConfig`.
 
 ## Security Considerations (gRPC over TLS)
 
@@ -194,9 +224,13 @@ ai_core:
   timeout_ms: 10000
   parallel_instances: 1
 video:
+  mode: "device"
   device_name: "FrontCam"
   driver_id: "IntegratedCamera0"
   resolution: "1920x1080"
+  # file_path: "D:/Recordings/frontcam.mp4"
+  # webcam_index: 0
+  loop_file: false
 test:
   model_name: "DetectModeModel"
   ta_executable: "C:/Program Files/PROVEtech/PROVEtechTA.exe"
@@ -229,9 +263,13 @@ logging:
 
 | Clé | Valeur par défaut | Description |
 | --- | ----------------- | ----------- |
+| `mode` | `device` | Mode d'ingestion : `device` conserve la capture matérielle, `webcam` utilise la webcam locale et `file` rejoue une vidéo enregistrée. Surcharge avec `--video-mode`. |
 | `device_name` | `FrontCam` | Nom logique de la source vidéo PROVEtech:TA. Surcharge avec `--video-source`. |
 | `driver_id` | `IntegratedCamera0` | Identifiant du pilote utilisé par PROVEtech:TA pour lier le périphérique. Surcharge avec `--video-driver`. |
 | `resolution` | `1920x1080` | Résolution de capture (Largeur x Hauteur). Surcharge avec `--resolution`. |
+| `file_path` | _non défini_ | Chemin absolu ou relatif de la vidéo enregistrée lorsque `mode` vaut `file`. Surcharge avec `--video-file`. |
+| `webcam_index` | _non défini_ | Index numérique de la webcam Windows à utiliser lorsque `mode` vaut `webcam`. Surcharge avec `--webcam-index`. |
+| `loop_file` | `false` | Boucler la lecture de la vidéo enregistrée au lieu de s'arrêter en fin de fichier. Activable via `--loop-video` / `--no-loop-video`. |
 
 ### test
 
@@ -265,6 +303,16 @@ python automate_test.py `
 python automate_test.py --grpc-host 10.10.1.20 --grpc-port 51000
 ```
 
+Pour exploiter temporairement la webcam ou rejouer un fichier sans modifier le YAML :
+
+```powershell
+# Capture webcam
+python automate_test.py --video-mode webcam --webcam-index 0
+
+# Lecture d'une vidéo enregistrée en boucle
+python automate_test.py --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
+```
+
 ## Scénarios avancés
 
 ### Changement dynamique de modèles
@@ -293,7 +341,13 @@ Les réseaux lents ou les démarrages prolongés nécessitent parfois une tempor
 
 ### Modification de la source vidéo
 
-Utilisez `--video-source` et `--video-driver` pour changer de caméra sans modifier le YAML. Si la résolution diffère, ajoutez `--resolution 1280x720` (ou un autre format valide). Le script applique les changements via `SystemModifyVideoAudioConfig` avant de démarrer la mesure.
+Sélectionnez le mode d'ingestion via `video.mode` (ou `--video-mode`).
+
+- `device` — Flux historique depuis une carte de capture ou un driver dédié. Combinez avec `--video-source`, `--video-driver` et `--resolution` pour cibler le canal souhaité.
+- `webcam` — Diffuse directement via la pile webcam de Windows. Fournissez l'index avec `video.webcam_index` ou `--webcam-index 0`. Le nom logique (`--video-source`) reste disponible pour conserver la nomenclature PROVEtech:TA.
+- `file` — Rejoue une vidéo enregistrée depuis le disque. Indiquez le chemin via `video.file_path` ou `--video-file D:/Recordings/run01.mp4` et bouclez la lecture avec `video.loop_file` / `--loop-video` si nécessaire.
+
+Lors du changement de mode, l'automatisation adapte automatiquement la charge utile envoyée à `SystemModifyVideoAudioConfig`.
 
 ## Considérations de sécurité (gRPC via TLS)
 
