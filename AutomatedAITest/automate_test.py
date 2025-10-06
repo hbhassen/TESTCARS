@@ -428,9 +428,24 @@ class TestAutomationController:
         mode = video.mode.lower()
         if mode not in {"device", "webcam", "file"}:
             raise ConfigurationError(f"Unsupported video mode: {video.mode}")
+        # Some deployments do not provide a "device name" when operating in
+        # file/webcam mode which makes the ModifyVideoAudioConfig RPC fail with
+        # the cryptic "System object not available" error.  PROVEtech expects
+        # a non-empty identifier so we derive a sensible fallback based on the
+        # available configuration values.
+        source_name = (
+            video.device_name
+            or video.driver_id
+            or (
+                video.file_path.stem
+                if mode == "file" and video.file_path is not None
+                else None
+            )
+            or "VideoSource"
+        )
         self.logger.info(
             "Configuring video source %s (%s) at resolution %s in %s mode",
-            video.device_name,
+            source_name,
             video.driver_id,
             video.resolution,
             mode,
@@ -453,7 +468,7 @@ class TestAutomationController:
             config_payload["file_path"] = str(file_path)
             config_payload["loop_file"] = video.loop_file
         request = ta_pb2.SystemModifyVideoAudioConfigRequest(
-            strSourceName=video.device_name,
+            strSourceName=source_name,
             strConfig=json.dumps(config_payload),
             strShareWithModelNode=self.config.test.model_name,
         )
@@ -464,7 +479,7 @@ class TestAutomationController:
         )
 
         measure_request = ta_pb2.MeasureSetVideoAudioRequest(
-            strName=video.device_name,
+            strName=source_name,
             bActivate=True,
             bPauseVideoInitially=False,
             bPauseAudioInitially=False,
