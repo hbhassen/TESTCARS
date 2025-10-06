@@ -450,8 +450,9 @@ class TestAutomationController:
             video.resolution,
             mode,
         )
+        device_name = video.device_name or source_name
         config_payload = {
-            "device_name": video.device_name,
+            "device_name": device_name,
             "driver_id": video.driver_id,
             "resolution": video.resolution,
             "share_with_model": self.config.test.model_name,
