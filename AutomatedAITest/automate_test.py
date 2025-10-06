@@ -428,59 +428,101 @@ class TestAutomationController:
         mode = video.mode.lower()
         if mode not in {"device", "webcam", "file"}:
             raise ConfigurationError(f"Unsupported video mode: {video.mode}")
-        # Some deployments do not provide a "device name" when operating in
-        # file/webcam mode which makes the ModifyVideoAudioConfig RPC fail with
-        # the cryptic "System object not available" error.  PROVEtech expects
-        # a non-empty identifier so we derive a sensible fallback based on the
-        # available configuration values.
-        source_name = (
-            video.device_name
-            or video.driver_id
-            or (
-                video.file_path.stem
-                if mode == "file" and video.file_path is not None
-                else None
-            )
-            or "VideoSource"
-        )
-        self.logger.info(
-            "Configuring video source %s (%s) at resolution %s in %s mode",
-            source_name,
-            video.driver_id,
-            video.resolution,
-            mode,
-        )
-        device_name = video.device_name or source_name
-        config_payload = {
-            "device_name": device_name,
-            "driver_id": video.driver_id,
+        candidate_names: List[str] = []
+        for raw_name in [video.device_name, video.driver_id]:
+            if raw_name:
+                candidate_names.append(raw_name)
+        if mode == "file" and video.file_path is not None and video.file_path.stem:
+            candidate_names.append(video.file_path.stem)
+        # Built-in fallbacks that align with the default PROVEtech:TA project
+        # templates.  They cover both legacy and modern naming conventions.
+        candidate_names.extend(["FrontCam", "VideoSource", "Video Source"])
+        if self.config.test.model_name:
+            candidate_names.append(self.config.test.model_name)
+
+        # Deduplicate while preserving order and ignore empty placeholders.
+        seen: set[str] = set()
+        ordered_candidates: List[str] = []
+        for name in candidate_names:
+            normalized = name.strip()
+            if not normalized:
+                continue
+            key = normalized.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered_candidates.append(normalized)
+        if not ordered_candidates:
+            ordered_candidates.append("VideoSource")
+
+        base_payload: Dict[str, Any] = {
             "resolution": video.resolution,
-            "share_with_model": self.config.test.model_name,
             "mode": mode,
         }
+        if video.driver_id:
+            base_payload["driver_id"] = video.driver_id
+        share_with_model = self.config.test.model_name.strip()
+        if share_with_model:
+            base_payload["share_with_model"] = share_with_model
         if mode == "webcam" and video.webcam_index is not None:
-            config_payload["webcam_index"] = video.webcam_index
+            base_payload["webcam_index"] = video.webcam_index
         if mode == "file":
             if video.file_path is None:
                 raise ConfigurationError("Video file path must be provided when mode is 'file'")
             file_path = video.file_path.expanduser()
             if not file_path.exists():
                 raise ConfigurationError(f"Configured video file does not exist: {file_path}")
-            config_payload["file_path"] = str(file_path)
-            config_payload["loop_file"] = video.loop_file
-        request = ta_pb2.SystemModifyVideoAudioConfigRequest(
-            strSourceName=source_name,
-            strConfig=json.dumps(config_payload),
-            strShareWithModelNode=self.config.test.model_name,
-        )
-        self._call_rpc(
-            self.system_stub.ModifyVideoAudioConfig,
-            request,
-            "ModifyVideoAudioConfig",
+            base_payload["file_path"] = str(file_path)
+            base_payload["loop_file"] = video.loop_file
+
+        timeout_s = max(self.config.timeout_ms / 1000.0, 5)
+        resolved_source: Optional[str] = None
+        last_missing_error: Optional[grpc.RpcError] = None
+
+        for candidate in ordered_candidates:
+            payload = dict(base_payload)
+            payload["device_name"] = candidate
+            request_kwargs = {
+                "strSourceName": candidate,
+                "strConfig": json.dumps(payload),
+            }
+            if share_with_model:
+                request_kwargs["strShareWithModelNode"] = share_with_model
+            request = ta_pb2.SystemModifyVideoAudioConfigRequest(**request_kwargs)
+            try:
+                self.system_stub.ModifyVideoAudioConfig(request, timeout=timeout_s)
+            except grpc.RpcError as exc:  # pragma: no cover - network heavy
+                if self._is_missing_system_object_error(exc):
+                    self.logger.warning(
+                        "Video source '%s' not available in PROVEtech:TA; trying next candidate",
+                        candidate,
+                    )
+                    last_missing_error = exc
+                    continue
+                self._handle_rpc_exception("ModifyVideoAudioConfig", exc)
+            else:
+                resolved_source = candidate
+                if not video.device_name:
+                    video.device_name = candidate
+                break
+
+        if resolved_source is None:
+            hint = (
+                "Unable to locate a compatible video source in PROVEtech:TA. "
+                "Set 'video.device_name' in config.yaml to the configured source name."
+            )
+            raise ConfigurationError(hint) from last_missing_error
+
+        self.logger.info(
+            "Configuring video source %s (%s) at resolution %s in %s mode",
+            resolved_source,
+            video.driver_id or "<auto>",
+            video.resolution,
+            mode,
         )
 
         measure_request = ta_pb2.MeasureSetVideoAudioRequest(
-            strName=source_name,
+            strName=resolved_source,
             bActivate=True,
             bPauseVideoInitially=False,
             bPauseAudioInitially=False,
@@ -610,20 +652,36 @@ class TestAutomationController:
             raise RuntimeError(f"Signal {signal_name} returned no value")
         return getattr(response, which)
 
+    def _handle_rpc_exception(self, name: str, exc: grpc.RpcError) -> None:
+        status = exc.code()
+        if status == grpc.StatusCode.DEADLINE_EXCEEDED:
+            self.logger.error(
+                "RPC %s timed out after %sms",
+                name,
+                self.config.timeout_ms,
+            )
+            raise TimeoutError(f"RPC {name} timed out") from exc
+        if status in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.UNIMPLEMENTED):
+            self.logger.error("RPC %s failed: %s", name, exc.details())
+            raise ConnectionError(f"RPC {name} failed: {exc.details()}") from exc
+        self.logger.exception("Unexpected RPC error for %s", name)
+        raise
+
+    @staticmethod
+    def _is_missing_system_object_error(exc: grpc.RpcError) -> bool:
+        if exc.code() != grpc.StatusCode.UNKNOWN:
+            return False
+        details = exc.details() or ""
+        if "System\" object not available" in details or "System object not available" in details:
+            return True
+        return "System\" object not available" in str(exc)
+
     def _call_rpc(self, method, request, name: str):
         timeout_s = max(self.config.timeout_ms / 1000.0, 5)
         try:
             return method(request, timeout=timeout_s)
         except grpc.RpcError as exc:
-            status = exc.code()
-            if status == grpc.StatusCode.DEADLINE_EXCEEDED:
-                self.logger.error("RPC %s timed out after %sms", name, self.config.timeout_ms)
-                raise TimeoutError(f"RPC {name} timed out") from exc
-            if status in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.UNIMPLEMENTED):
-                self.logger.error("RPC %s failed: %s", name, exc.details())
-                raise ConnectionError(f"RPC {name} failed: {exc.details()}") from exc
-            self.logger.exception("Unexpected RPC error for %s", name)
-            raise
+            self._handle_rpc_exception(name, exc)
 
 
 def export_results(data: List[Dict[str, Any]], metadata: Dict[str, Any], output_dir: Path, logger) -> None:
