@@ -4,6 +4,7 @@ from __future__ import annotations
 from google.protobuf import descriptor_pool as _descriptor_pool
 from google.protobuf import symbol_database as _symbol_database
 from google.protobuf import descriptor_pb2
+from google.protobuf import message_factory as _message_factory
 
 _sym_db = _symbol_database.Default()
 
@@ -224,60 +225,51 @@ _build_file_descriptor()
 
 DESCRIPTOR = _descriptor_pool.Default().FindFileByName("testautomation.proto")
 
-SystemModifyVideoAudioConfigRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemModifyVideoAudioConfigRequest"]
+
+def _get_message_class(message_name: str):
+    """Return the generated message class for ``message_name``.
+
+    ``GetPrototype`` was removed from :mod:`google.protobuf` in v5+.  The
+    helper keeps compatibility with older versions while supporting the
+    modern :func:`google.protobuf.message_factory.GetMessageClass` helper.
+    """
+
+    message_descriptor = DESCRIPTOR.message_types_by_name[message_name]
+
+    if hasattr(_sym_db, "GetPrototype"):
+        return _sym_db.GetPrototype(message_descriptor)
+
+    message_cls = _message_factory.GetMessageClass(message_descriptor)
+    _sym_db.RegisterMessage(message_cls)
+    return message_cls
+
+
+SystemModifyVideoAudioConfigRequest = _get_message_class(
+    "SystemModifyVideoAudioConfigRequest"
 )
-SystemModifyVideoAudioConfigReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemModifyVideoAudioConfigReply"]
+SystemModifyVideoAudioConfigReply = _get_message_class(
+    "SystemModifyVideoAudioConfigReply"
 )
-SystemModifyModelNodeConfigRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemModifyModelNodeConfigRequest"]
+SystemModifyModelNodeConfigRequest = _get_message_class(
+    "SystemModifyModelNodeConfigRequest"
 )
-SystemModifyModelNodeConfigReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemModifyModelNodeConfigReply"]
+SystemModifyModelNodeConfigReply = _get_message_class(
+    "SystemModifyModelNodeConfigReply"
 )
-SystemLoadModelRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemLoadModelRequest"]
-)
-SystemLoadModelReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemLoadModelReply"]
-)
-MeasureSetVideoAudioRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["MeasureSetVideoAudioRequest"]
-)
-MeasureSetVideoAudioReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["MeasureSetVideoAudioReply"]
-)
-MeasureStartRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["MeasureStartRequest"]
-)
-MeasureStartReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["MeasureStartReply"]
-)
-MeasureStopRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["MeasureStopRequest"]
-)
-MeasureStopReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["MeasureStopReply"]
-)
-MeasureIsRunningRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["MeasureIsRunningRequest"]
-)
-MeasureIsRunningReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["MeasureIsRunningReply"]
-)
-SystemGetSignalRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemGetSignalRequest"]
-)
-SystemGetSignalReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemGetSignalReply"]
-)
-SystemGetResultRequest = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemGetResultRequest"]
-)
-SystemGetResultReply = _sym_db.GetPrototype(
-    DESCRIPTOR.message_types_by_name["SystemGetResultReply"]
-)
+SystemLoadModelRequest = _get_message_class("SystemLoadModelRequest")
+SystemLoadModelReply = _get_message_class("SystemLoadModelReply")
+MeasureSetVideoAudioRequest = _get_message_class("MeasureSetVideoAudioRequest")
+MeasureSetVideoAudioReply = _get_message_class("MeasureSetVideoAudioReply")
+MeasureStartRequest = _get_message_class("MeasureStartRequest")
+MeasureStartReply = _get_message_class("MeasureStartReply")
+MeasureStopRequest = _get_message_class("MeasureStopRequest")
+MeasureStopReply = _get_message_class("MeasureStopReply")
+MeasureIsRunningRequest = _get_message_class("MeasureIsRunningRequest")
+MeasureIsRunningReply = _get_message_class("MeasureIsRunningReply")
+SystemGetSignalRequest = _get_message_class("SystemGetSignalRequest")
+SystemGetSignalReply = _get_message_class("SystemGetSignalReply")
+SystemGetResultRequest = _get_message_class("SystemGetResultRequest")
+SystemGetResultReply = _get_message_class("SystemGetResultReply")
 
 __all__ = [
     "SystemModifyVideoAudioConfigRequest",
