@@ -11,6 +11,8 @@ AutomatedAITest est un outil d'orchestration écrit en Python qui automatise de 
 - Mise en place de l'acheminement vidéo (périphérique, webcam, vidéo enregistrée) pour l'ingestion AI-Core.
 - Démarrage des modèles de détection et surveillance des signaux AI-Core en direct.
 - Export des signaux capturés vers des artefacts CSV et JSON dans le répertoire de résultats configuré.
+- Cohabitation des deux modes d'exécution (lecture locale AI-Core et périphériques TestAutomationService) via un même fichier de configuration.
+- Déclenchement d'exports distants dans PROVEtech:TA (`Measure.SaveFile` ou `SaveResult`) en parallèle des artefacts générés localement.
 - Journalisation robuste avec horodatages et paramètres critiques surchargés en ligne de commande.
 
 ## Prérequis
@@ -55,8 +57,8 @@ Toutes les valeurs de configuration se trouvent dans `config.yaml`. Les valeurs 
 
 - `grpc` : nom d'hôte et port du serveur d'automatisation PROVEtech:TA.
 - `ai_core` : chemin de l'exécutable, fichier de configuration projet, temporisation et nombre d'instances.
-- `video` : mode d'ingestion, identifiants caméra/webcam et résolution à diffuser.
-- `test` : nom du modèle de détection, chemin de PROVEtech:TA, dossier de résultats et liste de signaux surveillés.
+- `video` : mode d'ingestion, identifiants caméra/webcam, résolution et type du périphérique lors de l'enregistrement gRPC.
+- `test` : nom du modèle de détection, mode d'exécution, chemin de PROVEtech:TA, base d'export distante, dossier de résultats et liste de signaux surveillés.
 - `logging` : niveau de journalisation et chemin du fichier de log.
 
 ## Exécution de l'automatisation
@@ -84,33 +86,56 @@ python automate_test.py `
 
 # Pointer vers un fichier de configuration alternatif et éviter le lancement de PROVEtech:TA
 python automate_test.py --config C:/Configs/nightly.yaml --skip-ta-launch
+
+# Enregistrer une caméra USB via TestAutomationService
+python automate_test.py `
+    --execution-mode device `
+    --video-source FrontCam `
+    --device-type VIDEO `
+    --video-driver USB_Cam_0
+
+# Forcer un modèle AI-Core spécifique sans redémarrer l'interface
+python automate_test.py --execution-mode local_file --model-command "SwitchModel IconDetection 'D:/DetectMode/model.modelcfg'"
+
+# Personnaliser le nom de fichier exporté par PROVEtech:TA
+python automate_test.py --result-basename D:/results/DetectMode_run01
 ```
 
 Pour utiliser la webcam du PC ou rejouer une vidéo enregistrée sans modifier le YAML :
 
 ```powershell
-# Diffuser depuis la webcam intégrée (index 0)
-python automate_test.py --video-mode webcam --webcam-index 0 --video-source PCWebcam
+# Diffuser depuis la webcam intégrée (index 0) via les services System/Measure
+python automate_test.py --execution-mode local_file --video-mode webcam --webcam-index 0 --video-source PCWebcam
 
 # Rejouer un fichier vidéo en boucle pour des campagnes de régression
-python automate_test.py --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
+python automate_test.py --execution-mode local_file --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
 ```
 
 Consultez `python automate_test.py --help` pour la liste complète des options, notamment `--ai-core-config`, `--ai-core-executable`, `--log-signal` et `--monitor-seconds`.
+
+## Modes d'exécution
+
+Deux approches sont disponibles via `test.execution_mode` :
+
+- **`local_file`** (par défaut) initialise PROVEtech:TA en s'appuyant sur les services `Application`, `System` et `Measure`. À utiliser lorsque AI-Core lit un média local défini dans son interface. Le paramètre `model_command` permet de déclencher un `SwitchModel`, et `result_basename` indique où sauvegarder les CSV générés par `Measure.SaveFile`.
+- **`device`** cible les caméras USB/webcam gérées par TestAutomationService. Le script appelle `AddDevice`, `SetVideoSource`, pousse la configuration AI-Core puis exécute `StartTesting`. Les exports distants sont réalisés via `SaveResult` et reprennent `result_basename`.
 
 ### Scénarios d'ingestion vidéo
 
 #### Utiliser la webcam du PC
 
-1. Paramétrez `video.mode: "webcam"` dans `config.yaml` et indiquez `video.webcam_index` si plusieurs caméras sont détectées.
+1. Choisissez le mode adapté :
+   - `local_file` : `video.mode: "webcam"` et `video.webcam_index` assurent le routage via les services classiques (`--execution-mode local_file`).
+   - `device` : laissez `video.mode` à `device`, précisez `video.device_type` et exécutez avec `--execution-mode device`.
 2. Conservez `video.device_name` en phase avec le nœud logique configuré dans PROVEtech:TA.
-3. Lancez l'automatisation ou utilisez la CLI avec `--video-mode webcam --webcam-index 0`.
+3. Définissez `result_basename` pour enregistrer les exports distants si nécessaire.
 
 #### Rejouer une vidéo enregistrée
 
-1. Définissez `video.mode: "file"` et pointez `video.file_path` vers le média à rejouer.
-2. Activez `video.loop_file: true` (ou `--loop-video`) pour boucler la lecture lors des longues campagnes.
-3. Démarrez le script ou surchargez dynamiquement via `--video-mode file --video-file D:/Recordings/run01.mp4`.
+1. Assurez-vous que `test.execution_mode` vaut `local_file`.
+2. Définissez `video.mode: "file"` et pointez `video.file_path` vers le média à rejouer.
+3. Activez `video.loop_file: true` (ou `--loop-video`) pour boucler la lecture lors des longues campagnes.
+4. Démarrez le script ou surchargez dynamiquement via `--execution-mode local_file --video-mode file --video-file D:/Recordings/run01.mp4`.
 
 ## Artefacts de résultats
 

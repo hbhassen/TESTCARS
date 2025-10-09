@@ -21,11 +21,13 @@ ai_core:
   config_file: "C:/AIcoreProjects/DetectMode/detectmode.cfg"
   timeout_ms: 10000
   parallel_instances: 1
+  # model_command: "SwitchModel IconDetection 'D:/DetectMode/model.modelcfg'"
 video:
   mode: "device"
   device_name: "FrontCam"
   driver_id: "IntegratedCamera0"
   resolution: "1920x1080"
+  device_type: "VIDEO"
   # file_path: "D:/Recordings/frontcam.mp4"
   # webcam_index: 0
   loop_file: false
@@ -33,6 +35,8 @@ test:
   model_name: "DetectModeModel"
   ta_executable: "C:/Program Files/PROVEtech/PROVEtechTA.exe"
   output_dir: "./results"
+  execution_mode: "local_file"
+  result_basename: "detectmode_run"
   log_signals:
     - "IconDetection.Result"
     - "IconDetection.Score"
@@ -56,6 +60,7 @@ logging:
 | `config_file` | `C:/AIcoreProjects/DetectMode/detectmode.cfg` | AI-Core project configuration to load. Override with `--ai-core-config`. |
 | `timeout_ms` | `10000` | Timeout for AI-Core related RPCs (model configuration, linking). Override with `--timeout`. |
 | `parallel_instances` | `1` | Number of AI-Core instances to spawn for multi-camera / multi-model tests. Reflects how many times the configuration is applied internally. |
+| `model_command` | _unset_ | Optional command string passed to `System.ModifyModelNodeConfig` (for example `SwitchModel …`). Use when the model must be forced without restarting PROVEtech:TA. |
 
 ### video
 
@@ -65,6 +70,7 @@ logging:
 | `device_name` | `FrontCam` | Logical PROVEtech:TA video source name. Override with `--video-source`. |
 | `driver_id` | `IntegratedCamera0` | Driver identifier used by PROVEtech:TA to bind the device. Override with `--video-driver`. |
 | `resolution` | `1920x1080` | Capture resolution (WidthxHeight). Override with `--resolution`. |
+| `device_type` | `VIDEO` | Type string forwarded to `AddDevice` when running in `device` execution mode. Override with `--device-type`. |
 | `file_path` | _unset_ | Absolute or relative path to the recorded footage when `mode` is `file`. Override with `--video-file`. |
 | `webcam_index` | _unset_ | Numeric index of the Windows webcam to bind when `mode` is `webcam`. Override with `--webcam-index`. |
 | `loop_file` | `false` | Loop recorded footage instead of stopping at the end. Toggle via `--loop-video` / `--no-loop-video`. |
@@ -76,7 +82,23 @@ logging:
 | `model_name` | `DetectModeModel` | Detection model node to load inside PROVEtech:TA. Override with `--model`. |
 | `ta_executable` | `C:/Program Files/PROVEtech/PROVEtechTA.exe` | Executable path for launching PROVEtech:TA. Override with `--ta-executable`. |
 | `output_dir` | `./results` | Directory where CSV/JSON artefacts are stored. Override with `--output-dir`. |
+| `execution_mode` | `local_file` | Selects the orchestration flow: `local_file` uses System/Measure services with AI-Core local playback, `device` leverages `TestAutomationService` for USB/webcam cameras. Override with `--execution-mode`. |
+| `result_basename` | `detectmode_run` | Base filename used for remote exports (`Measure.SaveFile` or `SaveResult`). Override with `--result-basename`. |
 | `log_signals` | `IconDetection.Result`, `IconDetection.Score` | AI-Core signal names to monitor. Use repeated `--log-signal` flags to override the list from CLI. |
+
+### Execution Modes
+
+- `local_file` &mdash; Follows the classic workflow based on the `Application`,
+  `System`, and `Measure` services. Use this mode when AI-Core replays a video
+  file selected in its configuration. Optional `model_command` values force a
+  specific model via `System.ModifyModelNodeConfig`. Results can be exported
+  directly from PROVEtech:TA through `Measure.SaveFile` if `result_basename`
+  points to a valid path.
+- `device` &mdash; Uses the consolidated `TestAutomationService` to register a
+  camera (USB, webcam, capture device), push AI-Core configuration entries, and
+  call `StartTesting`. Set `video.device_type` and `video.driver_id` according to
+  the hardware driver. Remote artefacts are generated with `SaveResult` and use
+  the configured `result_basename`.
 
 ### logging
 

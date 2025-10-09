@@ -15,6 +15,13 @@ def _build_file_descriptor() -> None:
     file_proto.package = "testautomation"
     file_proto.syntax = "proto3"
 
+    # ApplicationInit
+    msg = file_proto.message_type.add()
+    msg.name = "ApplicationInitRequest"
+
+    msg = file_proto.message_type.add()
+    msg.name = "ApplicationInitReply"
+
     # SystemModifyVideoAudioConfigRequest
     msg = file_proto.message_type.add()
     msg.name = "SystemModifyVideoAudioConfigRequest"
@@ -217,6 +224,206 @@ def _build_file_descriptor() -> None:
     field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
     field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
 
+    # MeasureSaveFile
+    msg = file_proto.message_type.add()
+    msg.name = "MeasureSaveFileRequest"
+    field = msg.field.add()
+    field.name = "strLabel"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    field = msg.field.add()
+    field.name = "strType"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    field = msg.field.add()
+    field.name = "strFileName"
+    field.number = 3
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "MeasureSaveFileReply"
+    field = msg.field.add()
+    field.name = "RetVal"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+
+    # Device workflow messages
+    msg = file_proto.message_type.add()
+    msg.name = "DeviceConfiguration"
+    field = msg.field.add()
+    field.name = "name"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    field = msg.field.add()
+    field.name = "driver_id"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    field = msg.field.add()
+    field.name = "type"
+    field.number = 3
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    field = msg.field.add()
+    field.name = "resolution"
+    field.number = 4
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    field = msg.field.add()
+    field.name = "enable"
+    field.number = 5
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+    field = msg.field.add()
+    field.name = "webcam_index"
+    field.number = 6
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_INT32
+
+    msg = file_proto.message_type.add()
+    msg.name = "DeviceConfigurationReply"
+    field = msg.field.add()
+    field.name = "success"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+    field = msg.field.add()
+    field.name = "message"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "DeviceIdentifier"
+    field = msg.field.add()
+    field.name = "name"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "VideoSourceReply"
+    field = msg.field.add()
+    field.name = "success"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+    field = msg.field.add()
+    field.name = "message"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "ConfigEntry"
+    field = msg.field.add()
+    field.name = "key"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    field = msg.field.add()
+    field.name = "value"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "ConfigEntryReply"
+    field = msg.field.add()
+    field.name = "success"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+    field = msg.field.add()
+    field.name = "message"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "CommunicationRequest"
+    field = msg.field.add()
+    field.name = "enable"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+
+    msg = file_proto.message_type.add()
+    msg.name = "CommunicationReply"
+    field = msg.field.add()
+    field.name = "success"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+    field = msg.field.add()
+    field.name = "message"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "StartTestRequest"
+    field = msg.field.add()
+    field.name = "model"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "StartTestReply"
+    field = msg.field.add()
+    field.name = "success"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+    field = msg.field.add()
+    field.name = "message"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "ResultExportRequest"
+    field = msg.field.add()
+    field.name = "path"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "ResultExportReply"
+    field = msg.field.add()
+    field.name = "success"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+    field = msg.field.add()
+    field.name = "message"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
+    msg = file_proto.message_type.add()
+    msg.name = "StopTestRequest"
+
+    msg = file_proto.message_type.add()
+    msg.name = "StopTestReply"
+    field = msg.field.add()
+    field.name = "success"
+    field.number = 1
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_BOOL
+    field = msg.field.add()
+    field.name = "message"
+    field.number = 2
+    field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+    field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+
     pool = _descriptor_pool.Default()
     pool.Add(file_proto)
 
@@ -244,6 +451,8 @@ def _get_message_class(message_name: str):
     return message_cls
 
 
+ApplicationInitRequest = _get_message_class("ApplicationInitRequest")
+ApplicationInitReply = _get_message_class("ApplicationInitReply")
 SystemModifyVideoAudioConfigRequest = _get_message_class(
     "SystemModifyVideoAudioConfigRequest"
 )
@@ -270,8 +479,26 @@ SystemGetSignalRequest = _get_message_class("SystemGetSignalRequest")
 SystemGetSignalReply = _get_message_class("SystemGetSignalReply")
 SystemGetResultRequest = _get_message_class("SystemGetResultRequest")
 SystemGetResultReply = _get_message_class("SystemGetResultReply")
+MeasureSaveFileRequest = _get_message_class("MeasureSaveFileRequest")
+MeasureSaveFileReply = _get_message_class("MeasureSaveFileReply")
+DeviceConfiguration = _get_message_class("DeviceConfiguration")
+DeviceConfigurationReply = _get_message_class("DeviceConfigurationReply")
+DeviceIdentifier = _get_message_class("DeviceIdentifier")
+VideoSourceReply = _get_message_class("VideoSourceReply")
+ConfigEntry = _get_message_class("ConfigEntry")
+ConfigEntryReply = _get_message_class("ConfigEntryReply")
+CommunicationRequest = _get_message_class("CommunicationRequest")
+CommunicationReply = _get_message_class("CommunicationReply")
+StartTestRequest = _get_message_class("StartTestRequest")
+StartTestReply = _get_message_class("StartTestReply")
+ResultExportRequest = _get_message_class("ResultExportRequest")
+ResultExportReply = _get_message_class("ResultExportReply")
+StopTestRequest = _get_message_class("StopTestRequest")
+StopTestReply = _get_message_class("StopTestReply")
 
 __all__ = [
+    "ApplicationInitRequest",
+    "ApplicationInitReply",
     "SystemModifyVideoAudioConfigRequest",
     "SystemModifyVideoAudioConfigReply",
     "SystemModifyModelNodeConfigRequest",
@@ -290,4 +517,20 @@ __all__ = [
     "SystemGetSignalReply",
     "SystemGetResultRequest",
     "SystemGetResultReply",
+    "MeasureSaveFileRequest",
+    "MeasureSaveFileReply",
+    "DeviceConfiguration",
+    "DeviceConfigurationReply",
+    "DeviceIdentifier",
+    "VideoSourceReply",
+    "ConfigEntry",
+    "ConfigEntryReply",
+    "CommunicationRequest",
+    "CommunicationReply",
+    "StartTestRequest",
+    "StartTestReply",
+    "ResultExportRequest",
+    "ResultExportReply",
+    "StopTestRequest",
+    "StopTestReply",
 ]
