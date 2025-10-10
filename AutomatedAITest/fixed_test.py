@@ -7,38 +7,44 @@ import grpc
 import testautomation_pb2 as ta
 import testautomation_pb2_grpc as ta_grpc
 
-# ========= CONFIG =========
+# ===================== CONFIG =====================
 GRPC_ADDR = "localhost:50051"
-ROOT_NODE = "AICORE"   # Doit correspondre au Root Node dans AI-Core
-TEST_NAME = "DetectMode_AutoTest"  # Nom logique du test si ton proto le supporte
-TEST_CFG = r"C:/Users/py13733/modeTo/DetectModeTest/DetectModeTest.testcfg"  # utilisé SEULEMENT si le proto expose un champ approprié
+ROOT_NODE = "AICORE"  # Doit correspondre au Root Node défini dans AI-Core
+
+# Source vidéo (nom tel que défini côté TA/AI-Core ; adapter si besoin)
+VIDEO_SOURCE_NAME = "FrontCam"   # ou "LocalVideo" selon votre config
+
+# Résultats / références
 REF_JSON = Path(r"C:/Users/py13733/modeTo/DetectModeTest/testso.json")
 CSV_OUT  = Path(r"./detectmode_run01.csv")
 
-# Signaux cibles (adapte-les si ton arbo change)
+# Noms de signaux (adapter si l’arbo diffère)
 SIG_RESULT = "IconDetection.Result"
 SIG_SCORE  = "IconDetection.Score"
 SIG_CNTNT  = "IconDetection.Content"
 
-# ========= OUTILS =========
-def has_field(msg_cls, field_name: str) -> bool:
-    """Vérifie si un champ existe dans un message Protobuf généré."""
-    return field_name in msg_cls.DESCRIPTOR.fields_by_name
+# Durées
+POLL_DURATION_S = 20
+POLL_PERIOD_S   = 0.5
+WAIT_SIGNALS_TIMEOUT_S = 30
+# ==================================================
+
+def grpc_status(err: Exception):
+    if isinstance(err, grpc.RpcError):
+        return err.code(), err.details()
+    return None, None
 
 def connect():
     ch  = grpc.insecure_channel(GRPC_ADDR)
     app = ta_grpc.ApplicationStub(ch) if hasattr(ta_grpc, "ApplicationStub") else None
     sys = ta_grpc.SystemStub(ch)       if hasattr(ta_grpc, "SystemStub")       else None
     mea = ta_grpc.MeasureStub(ch)      if hasattr(ta_grpc, "MeasureStub")      else None
-
-    # Le service qui contient StartTesting peut s'appeler différemment selon les .proto
-    # On essaye plusieurs stubs possibles :
+    # Service "test" (souvent absent ou StartTesting non-implémenté → fallback Measure.*)
     tst = None
     for cand in ["TestAutomationServiceStub", "ApplicationStub", "SystemStub"]:
         if hasattr(ta_grpc, cand):
             tst = getattr(ta_grpc, cand)(ch)
             break
-
     return app, sys, mea, tst
 
 def init_app(app):
@@ -46,129 +52,92 @@ def init_app(app):
         app.Init(ta.ApplicationInitRequest())
         print("[INFO] Application initialisée.")
     else:
-        print("[WARN] Pas de service Application.Init dans ce proto.")
+        print("[WARN] Service Application.Init indisponible dans ce proto.")
 
-# ========= LANCEMENT TEST =========
-def build_start_test_request():
-    """
-    Construit un StartTestRequest en ne renseignant QUE les champs qui existent réellement
-    dans ton testautomation_pb2.py (évite ValueError: field inexistant).
-    """
-    if not hasattr(ta, "StartTestRequest"):
-        return None
-
-    req = ta.StartTestRequest()
-
-    # Nom du test / modèle : on tente plusieurs variantes de champ
-    for field in ["model", "strModelName", "testName", "strTestName", "name"]:
-        if has_field(ta.StartTestRequest, field):
-            setattr(req, field, TEST_NAME)
-            break
-
-    # Fichier de config : on tente plusieurs variantes ; on n'utilise PAS strConfigFile
-    for field in ["configFile", "strConfig", "testConfigPath", "config_path"]:
-        if has_field(ta.StartTestRequest, field):
-            setattr(req, field, TEST_CFG)
-            break
-
-    return req
-
-def start_test(tst):
-    """
-    Essaye d'appeler StartTesting sur le service disponible, sinon fallback:
-    - démarrage de mesure (Measure.Start) si exposé,
-    - ou simple attente des signaux si AI-Core est déjà lancé via TA.
-    """
+def try_start_testing(tst):
+    """Essaie StartTesting si disponible ; fallback sur Measure.Start s'il est UNIMPLEMENTED."""
     if not tst:
-        print("[WARN] Aucun stub 'test' disponible. On passera en fallback Measure.Start.")
+        print("[INFO] Pas de service 'test' → on utilisera Measure.Start.")
         return False
 
-    # Prépare la requête si le message existe
-    request = build_start_test_request() if hasattr(ta, "StartTestRequest") else None
+    # Si l'RPC n'existe pas, on ne tente pas.
+    if not any(hasattr(tst, m) for m in ("StartTesting", "StartTest", "Start")):
+        print("[INFO] Aucune méthode StartTesting/StartTest/Start → on utilisera Measure.Start.")
+        return False
 
-    # Tente StartTesting sur la méthode existante (nom selon proto)
-    for meth_name in ["StartTesting", "StartTest", "Start"]:
+    # Construit une requête vide/compatible (certains protos ne prennent qu'un Empty)
+    request = None
+    if hasattr(ta, "StartTestRequest"):
+        request = ta.StartTestRequest()  # on n'affecte aucun champ pour éviter les ValueError
+    elif hasattr(ta, "Empty"):
+        request = ta.Empty()
+    else:
+        request = ta.ApplicationInitRequest()
+
+    for meth_name in ("StartTesting", "StartTest", "Start"):
         if hasattr(tst, meth_name):
             print(f"[INFO] Tentative de lancement via {meth_name}...")
-            if request:
-                res = getattr(tst, meth_name)(request)
-            else:
-                # S'il n'y a pas de message StartTestRequest, on tente un Empty()
-                empty = ta.Empty() if hasattr(ta, "Empty") else None
-                res = getattr(tst, meth_name)(empty) if empty else getattr(tst, meth_name)(ta.ApplicationInitRequest())
-            # Si le message de retour a (success/message), on trace
-            if hasattr(res, "success") and not res.success:
-                print(f"[ERREUR] {meth_name} a échoué : {getattr(res, 'message', '(sans message)')}")
-                return False
-            print(f"[OK] Lancement via {meth_name}.")
-            return True
-
-    print("[WARN] Aucune méthode StartTesting/StartTest/Start trouvée sur ce service.")
+            try:
+                getattr(tst, meth_name)(request)
+                print(f"[OK] Lancement via {meth_name}.")
+                return True
+            except Exception as e:
+                code, details = grpc_status(e)
+                if code == grpc.StatusCode.UNIMPLEMENTED:
+                    print(f"[WARN] {meth_name} non implémenté par le serveur → fallback Measure.Start.")
+                    return False
+                # Autres erreurs : on continue de tenter les variantes, sinon fallback
+                print(f"[WARN] {meth_name} a échoué: {code} {details} → on tentera les variantes/fallback.")
     return False
 
-def stop_test(tst, mea=None):
-    # Essaye StopTesting ; sinon fallback Measure.Stop
-    if tst:
-        for meth in ["StopTesting", "StopTest", "Stop"]:
-            if hasattr(tst, meth):
-                getattr(tst, meth)(ta.StopTestRequest() if hasattr(ta, "StopTestRequest") else ta.ApplicationInitRequest())
-                print(f"[OK] Test arrêté via {meth}.")
-                return
-    if mea and hasattr(mea, "Stop"):
-        mea.Stop(ta.MeasureStopRequest())
-        print("[OK] Mesure arrêtée (fallback Measure.Stop).")
-
-# ========= MESURE =========
-def ensure_measure_started(mea):
-    """
-    Fallback si StartTesting n'existe pas : démarre directement l'acquisition via Measure.
-    """
+def start_measure(mea):
+    """Chemin standard : active la source vidéo et démarre la mesure."""
     if not mea:
-        return False
+        raise RuntimeError("MeasureStub non disponible dans ce proto.")
 
-    # SetVideoAudio si dispo (pour source vidéo nommée côté config)
+    # Activer la source vidéo si RPC dispo
     if hasattr(mea, "SetVideoAudio") and hasattr(ta, "MeasureSetVideoAudioRequest"):
-        mea.SetVideoAudio(ta.MeasureSetVideoAudioRequest(
-            strName="FrontCam",  # adapte si ta source a un autre nom
-            bActivate=True,
-            bPauseVideoInitially=False,
-            bPauseAudioInitially=False
-        ))
-        print("[INFO] Source vidéo activée (Measure.SetVideoAudio).")
+        try:
+            mea.SetVideoAudio(ta.MeasureSetVideoAudioRequest(
+                strName=VIDEO_SOURCE_NAME,
+                bActivate=True,
+                bPauseVideoInitially=False,
+                bPauseAudioInitially=False
+            ))
+            print(f"[INFO] Source vidéo activée: {VIDEO_SOURCE_NAME}")
+        except Exception as e:
+            code, details = grpc_status(e)
+            print(f"[WARN] SetVideoAudio a échoué ({code} {details}) — on continue avec Start().")
 
     if hasattr(mea, "Start") and hasattr(ta, "MeasureStartRequest"):
         mea.Start(ta.MeasureStartRequest())
         print("[OK] Mesure démarrée (Measure.Start).")
-        return True
+    else:
+        raise RuntimeError("Measure.Start non disponible dans ce proto.")
 
-    print("[WARN] Impossible de démarrer la mesure (pas de Measure.Start).")
-    return False
-
-def wait_for_signals(sys, timeout_s=20, poll=0.5):
-    """
-    Attend que les signaux AICORE.* deviennent lisibles (connection AI-Core établie).
-    """
+def wait_for_signals(sys, timeout_s=WAIT_SIGNALS_TIMEOUT_S, poll=POLL_PERIOD_S):
+    """Attend que AICORE.*.Score soit lisible (AI-Core prêt)."""
     if not sys:
-        print("[WARN] Pas de service SystemStub.")
+        print("[WARN] SystemStub non disponible; on ne peut pas vérifier les signaux.")
         return False
-
+    target = f"{ROOT_NODE}.{SIG_SCORE}"
     t0 = time.time()
-    path = f"{ROOT_NODE}.{SIG_SCORE}"
     while time.time() - t0 < timeout_s:
         try:
-            val = sys.GetSignal(ta.SystemGetSignalRequest(strSignalName=path, bInterpreted=True)).RetVal_double
-            # Si on arrive à lire un double sans exception, la comm est OK
-            print(f"[INFO] Signal lisible: {path} → {val:.3f}")
+            val = sys.GetSignal(ta.SystemGetSignalRequest(
+                strSignalName=target, bInterpreted=True
+            )).RetVal_double
+            print(f"[INFO] Signal prêt: {target} → {val:.3f}")
             return True
-        except Exception as e:
+        except Exception:
             time.sleep(poll)
-    print("[ERREUR] Timeout d’attente des signaux AICORE.")
+    print("[ERREUR] Timeout: signaux AI-Core non disponibles dans le délai.")
     return False
 
-def poll_ai_core_results(sys, duration_s=10, period_s=0.5):
+def poll_ai_core_results(sys, duration_s=POLL_DURATION_S, period_s=POLL_PERIOD_S):
     rows = []
     t0 = time.time()
-    while time.time() - t0 < duration_s:
+    for _ in range(int(duration_s/period_s)):
         try:
             res = sys.GetSignal(ta.SystemGetSignalRequest(
                 strSignalName=f"{ROOT_NODE}.{SIG_RESULT}", bInterpreted=True
@@ -179,7 +148,6 @@ def poll_ai_core_results(sys, duration_s=10, period_s=0.5):
             )).RetVal_double
 
             content = ""
-            # Content n'existe pas dans toutes les configs — on tente prudemment
             try:
                 content = sys.GetSignal(ta.SystemGetSignalRequest(
                     strSignalName=f"{ROOT_NODE}.{SIG_CNTNT}", bInterpreted=True
@@ -187,18 +155,40 @@ def poll_ai_core_results(sys, duration_s=10, period_s=0.5):
             except Exception:
                 content = ""
 
-            frame = round(time.time() - t0, 2)
-            rows.append({"Frame": frame, "Detected": res.strip(), "Score": round(score, 3), "Content": content.strip()})
-            print(f"[Frame {frame}] {res} (score={score:.2f})")
+            t_rel = round(time.time() - t0, 2)
+            rows.append({"Frame": t_rel, "Detected": (res or "").strip(),
+                         "Score": round(float(score), 3), "Content": (content or "").strip()})
+            print(f"[Frame {t_rel}] {res} (score={score:.2f})")
         except Exception as e:
-            print(f"[WARN] Lecture signal échouée : {e}")
+            code, details = grpc_status(e)
+            print(f"[WARN] Lecture signal échouée: {code} {details}")
         time.sleep(period_s)
     return rows
 
-# ========= COMPARAISON =========
+def stop_everything(tst, mea):
+    """Arrêt propre : tente StopTesting, sinon Measure.Stop."""
+    if tst:
+        for meth in ("StopTesting", "StopTest", "Stop"):
+            if hasattr(tst, meth):
+                try:
+                    if hasattr(ta, "StopTestRequest"):
+                        getattr(tst, meth)(ta.StopTestRequest())
+                    else:
+                        getattr(tst, meth)(ta.ApplicationInitRequest())
+                    print(f"[OK] Test arrêté via {meth}.")
+                    return
+                except Exception:
+                    pass
+    if mea and hasattr(mea, "Stop") and hasattr(ta, "MeasureStopRequest"):
+        try:
+            mea.Stop(ta.MeasureStopRequest())
+            print("[OK] Mesure arrêtée (Measure.Stop).")
+        except Exception:
+            pass
+
 def load_reference_results(path: Path):
     if not path.exists():
-        print(f"[WARN] Fichier de référence absent: {path}")
+        print(f"[WARN] Référence absente: {path}")
         return []
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -206,9 +196,7 @@ def load_reference_results(path: Path):
     return data
 
 def compare_results(live, ref):
-    def similarity(a, b):
-        return SequenceMatcher(None, a or "", b or "").ratio()
-
+    def similarity(a, b): return SequenceMatcher(None, a or "", b or "").ratio()
     out = []
     for i, frame in enumerate(live):
         if i < len(ref):
@@ -216,19 +204,16 @@ def compare_results(live, ref):
             detected = (frame.get("Detected") or "").strip()
             sim = similarity(expected, detected)
             match = "OK" if sim >= 0.9 else "DIFF"
-            score_live = float(frame.get("Score", 0) or 0)
-            score_ref  = float(ref[i].get("Score", 0) or 0)
+            s_live = float(frame.get("Score", 0) or 0)
+            s_ref  = float(ref[i].get("Score", 0) or 0)
             out.append({
-                "Frame": i,
-                "Expected": expected,
-                "Detected": detected,
-                "Match": match,
-                "Similarity": round(sim, 2),
-                "ScoreDiff": round(abs(score_live - score_ref), 3)
+                "Frame": i, "Expected": expected, "Detected": detected,
+                "Match": match, "Similarity": round(sim, 2),
+                "ScoreDiff": round(abs(s_live - s_ref), 3)
             })
         else:
-            out.append({"Frame": i, "Expected": "N/A", "Detected": frame.get("Detected"), "Match": "EXTRA",
-                        "Similarity": 0.0, "ScoreDiff": "-"})
+            out.append({"Frame": i, "Expected": "N/A", "Detected": frame.get("Detected"),
+                        "Match": "EXTRA", "Similarity": 0.0, "ScoreDiff": "-"})
     return out
 
 def save_report_csv(data, path: Path):
@@ -237,46 +222,40 @@ def save_report_csv(data, path: Path):
         f.write("Frame,Expected,Detected,Match,Similarity,ScoreDiff\n")
         for d in data:
             f.write(f"{d['Frame']},{d['Expected']},{d['Detected']},{d['Match']},{d['Similarity']},{d['ScoreDiff']}\n")
-    print(f"[INFO] Rapport CSV exporté → {path}")
+    print(f"[INFO] Rapport CSV exporté → {path.resolve()}")
 
 def save_report_json(data, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-    print(f"[INFO] Rapport JSON exporté → {path}")
+    print(f"[INFO] Rapport JSON exporté → {path.resolve()}")
 
-# ========= MAIN =========
+# ===================== MAIN =====================
 if __name__ == "__main__":
     app, sys, mea, tst = connect()
     init_app(app)
 
-    launched = start_test(tst)
-    if not launched:
-        # Fallback si pas de StartTesting dans ce proto : on tente via Measure.*
-        launched = ensure_measure_started(mea)
+    # 1) Essai StartTesting → fallback Measure.Start si UNIMPLEMENTED
+    started_by_test = try_start_testing(tst)
+    if not started_by_test:
+        start_measure(mea)
 
-    # Attente que les signaux deviennent lisibles (AI-Core chargé, modèle up)
-    if not wait_for_signals(sys, timeout_s=30, poll=0.5):
-        # On arrête proprement si possible
-        try:
-            stop_test(tst, mea)
-        except Exception:
-            pass
+    # 2) Attendre que les signaux AI-Core soient lisibles
+    if not wait_for_signals(sys, timeout_s=WAIT_SIGNALS_TIMEOUT_S, poll=POLL_PERIOD_S):
+        stop_everything(tst, mea)
         raise SystemExit(1)
 
-    print("[INFO] Lecture des signaux pendant 20 secondes...")
-    live = poll_ai_core_results(sys, duration_s=20, period_s=0.5)
+    # 3) Polling live
+    print(f"[INFO] Lecture des signaux pendant {POLL_DURATION_S} s ...")
+    live = poll_ai_core_results(sys, duration_s=POLL_DURATION_S, period_s=POLL_PERIOD_S)
 
-    # Stop (peu importe la voie utilisée)
-    try:
-        stop_test(tst, mea)
-    except Exception:
-        pass
+    # 4) Stop
+    stop_everything(tst, mea)
 
+    # 5) Comparaison et exports
     ref = load_reference_results(REF_JSON)
     comp = compare_results(live, ref)
-
     save_report_csv(comp, CSV_OUT)
     save_report_json(comp, CSV_OUT.with_suffix(".json"))
 
-    print("[✅] Test terminé et comparé avec succès.")
+    print("[✅] Exécution terminée (acquisition + comparaison + export).")
