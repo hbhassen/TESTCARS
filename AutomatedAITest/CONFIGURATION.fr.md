@@ -18,11 +18,13 @@ ai_core:
   config_file: "C:/AIcoreProjects/DetectMode/detectmode.cfg"
   timeout_ms: 10000
   parallel_instances: 1
+  # model_command: "SwitchModel IconDetection 'D:/DetectMode/model.modelcfg'"
 video:
   mode: "device"
   device_name: "FrontCam"
   driver_id: "IntegratedCamera0"
   resolution: "1920x1080"
+  device_type: "VIDEO"
   # file_path: "D:/Recordings/frontcam.mp4"
   # webcam_index: 0
   loop_file: false
@@ -30,6 +32,8 @@ test:
   model_name: "DetectModeModel"
   ta_executable: "C:/Program Files/PROVEtech/PROVEtechTA.exe"
   output_dir: "./results"
+  execution_mode: "local_file"
+  result_basename: "detectmode_run"
   log_signals:
     - "IconDetection.Result"
     - "IconDetection.Score"
@@ -53,6 +57,7 @@ logging:
 | `config_file` | `C:/AIcoreProjects/DetectMode/detectmode.cfg` | Configuration du projet AI-Core à charger. Remplaçable avec `--ai-core-config`. |
 | `timeout_ms` | `10000` | Temporisation des RPC liés à AI-Core (configuration de modèle, liaison). Remplaçable avec `--timeout`. |
 | `parallel_instances` | `1` | Nombre d'instances AI-Core à lancer pour les tests multi-caméras / multi-modèles. Définit combien de fois la configuration est appliquée en interne. |
+| `model_command` | _non défini_ | Chaîne optionnelle transmise à `System.ModifyModelNodeConfig` (par exemple `SwitchModel …`). Utile pour forcer un modèle sans relancer PROVEtech:TA. |
 
 ### video
 
@@ -62,6 +67,7 @@ logging:
 | `device_name` | `FrontCam` | Nom logique de la source vidéo dans PROVEtech:TA. Remplaçable avec `--video-source`. |
 | `driver_id` | `IntegratedCamera0` | Identifiant du pilote utilisé par PROVEtech:TA pour lier le périphérique. Remplaçable avec `--video-driver`. |
 | `resolution` | `1920x1080` | Résolution de capture (Largeur x Hauteur). Remplaçable avec `--resolution`. |
+| `device_type` | `VIDEO` | Type transmis à `AddDevice` lorsque `execution_mode` vaut `device`. Remplaçable avec `--device-type`. |
 | `file_path` | _non défini_ | Chemin absolu ou relatif de la vidéo enregistrée lorsque `mode` vaut `file`. Remplaçable avec `--video-file`. |
 | `webcam_index` | _non défini_ | Index numérique de la webcam Windows à utiliser lorsque `mode` vaut `webcam`. Remplaçable avec `--webcam-index`. |
 | `loop_file` | `false` | Boucler la lecture de la vidéo enregistrée au lieu de s'arrêter en fin de fichier. Activable via `--loop-video` / `--no-loop-video`. |
@@ -73,7 +79,14 @@ logging:
 | `model_name` | `DetectModeModel` | Nœud de modèle de détection à charger dans PROVEtech:TA. Remplaçable avec `--model`. |
 | `ta_executable` | `C:/Program Files/PROVEtech/PROVEtechTA.exe` | Chemin de l'exécutable PROVEtech:TA. Remplaçable avec `--ta-executable`. |
 | `output_dir` | `./results` | Dossier où les artefacts CSV/JSON sont stockés. Remplaçable avec `--output-dir`. |
+| `execution_mode` | `local_file` | Choix du flux d'automatisation : `local_file` utilise les services System/Measure, `device` s'appuie sur TestAutomationService. Remplaçable avec `--execution-mode`. |
+| `result_basename` | `detectmode_run` | Base du nom de fichier pour les exports distants (`Measure.SaveFile` ou `SaveResult`). Remplaçable avec `--result-basename`. |
 | `log_signals` | `IconDetection.Result`, `IconDetection.Score` | Noms des signaux AI-Core à surveiller. Utilisez plusieurs options `--log-signal` pour remplacer la liste via la CLI. |
+
+### Modes d'exécution
+
+- `local_file` : flux historique utilisant les services `Application`, `System` et `Measure`. À privilégier lorsque la vidéo est sélectionnée dans l'UI AI-Core. Le champ `model_command` permet d'envoyer un `SwitchModel` et `result_basename` définit le CSV généré par `Measure.SaveFile`.
+- `device` : flux piloté par TestAutomationService pour enregistrer un périphérique USB/webcam, activer la configuration AI-Core et lancer `StartTesting`. Les exports sont générés via `SaveResult` en reprenant `result_basename`.
 
 ### logging
 
@@ -102,10 +115,10 @@ Pour exploiter temporairement la webcam du PC ou rejouer un fichier sans modifie
 
 ```powershell
 # Capture webcam
-python automate_test.py --video-mode webcam --webcam-index 0
+python automate_test.py --execution-mode local_file --video-mode webcam --webcam-index 0
 
 # Lecture d'une vidéo enregistrée en boucle
-python automate_test.py --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
+python automate_test.py --execution-mode local_file --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
 ```
 
 ## Scénarios avancés

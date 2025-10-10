@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import time
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,6 +56,7 @@ class AiCoreSettings:
     config_file: Path
     timeout_ms: int
     parallel_instances: int
+    model_command: Optional[str] = None
 
 
 @dataclass
@@ -68,6 +70,7 @@ class VideoSettings:
     file_path: Optional[Path] = None
     webcam_index: Optional[int] = None
     loop_file: bool = False
+    device_type: str = "VIDEO"
 
 
 @dataclass
@@ -86,6 +89,8 @@ class TestSettings:
     ta_executable: Optional[Path]
     output_dir: Path
     log_signals: List[str] = field(default_factory=list)
+    execution_mode: str = "local_file"
+    result_basename: str = "run"
 
 
 @dataclass
@@ -101,6 +106,15 @@ class AutomationConfig:
     @property
     def timeout_ms(self) -> int:
         return self.ai_core.timeout_ms or DEFAULT_TIMEOUT_MS
+
+
+def _interpret_signal_response(response) -> Any:
+    """Extract the returned value from a SystemGetSignalReply."""
+
+    which = response.WhichOneof("RetVal")
+    if not which:
+        raise RuntimeError("Signal request returned no value")
+    return getattr(response, which)
 
 
 def _parse_scalar(value: str) -> Any:
@@ -211,6 +225,11 @@ def load_configuration(config_path: Path) -> AutomationConfig:
         config_file=Path(str(ai_core_cfg.get("config_file", ""))),
         timeout_ms=int(ai_core_cfg.get("timeout_ms", DEFAULT_TIMEOUT_MS)),
         parallel_instances=int(ai_core_cfg.get("parallel_instances", 1)),
+        model_command=(
+            str(ai_core_cfg.get("model_command")).strip()
+            if ai_core_cfg.get("model_command")
+            else None
+        ),
     )
 
     video_mode = str(video_cfg.get("mode", "device")).lower()
@@ -232,6 +251,7 @@ def load_configuration(config_path: Path) -> AutomationConfig:
         file_path=file_path,
         webcam_index=webcam_index,
         loop_file=loop_file,
+        device_type=str(video_cfg.get("device_type", "VIDEO")),
     )
 
     test_settings = TestSettings(
@@ -241,6 +261,8 @@ def load_configuration(config_path: Path) -> AutomationConfig:
         else None,
         output_dir=Path(str(test_cfg.get("output_dir", "./results"))),
         log_signals=[str(sig) for sig in test_cfg.get("log_signals", [])],
+        execution_mode=str(test_cfg.get("execution_mode", "local_file")).lower(),
+        result_basename=str(test_cfg.get("result_basename", "run")),
     )
 
     logging_settings = LoggingSettings(
@@ -272,6 +294,8 @@ def apply_cli_overrides(config: AutomationConfig, args: argparse.Namespace) -> N
         config.video.driver_id = args.video_driver
     if args.resolution:
         config.video.resolution = args.resolution
+    if args.device_type:
+        config.video.device_type = args.device_type
     if args.video_mode:
         config.video.mode = args.video_mode.lower()
     if args.video_file:
@@ -286,6 +310,8 @@ def apply_cli_overrides(config: AutomationConfig, args: argparse.Namespace) -> N
         config.ai_core.config_file = Path(args.ai_core_config)
     if args.ai_core_executable:
         config.ai_core.executable = Path(args.ai_core_executable)
+    if args.model_command:
+        config.ai_core.model_command = args.model_command
     if args.output_dir:
         config.test.output_dir = Path(args.output_dir)
     if args.ta_executable:
@@ -294,6 +320,10 @@ def apply_cli_overrides(config: AutomationConfig, args: argparse.Namespace) -> N
         config.test.log_signals = list(args.log_signal)
     if args.log_level:
         config.logging.level = args.log_level
+    if args.execution_mode:
+        config.test.execution_mode = args.execution_mode
+    if args.result_basename:
+        config.test.result_basename = args.result_basename
 
 
 def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -307,6 +337,12 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--video-source", dest="video_source", type=str, help="Video source name")
     parser.add_argument("--video-driver", dest="video_driver", type=str, help="Driver identifier")
     parser.add_argument("--resolution", type=str, help="Video resolution (e.g. 1920x1080)")
+    parser.add_argument(
+        "--device-type",
+        dest="device_type",
+        type=str,
+        help="Device type identifier when registering hardware sources",
+    )
     parser.add_argument(
         "--video-mode",
         dest="video_mode",
@@ -340,6 +376,12 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, help="RPC timeout in milliseconds")
     parser.add_argument("--ai-core-config", dest="ai_core_config", type=str, help="AI-Core configuration file path")
     parser.add_argument("--ai-core-executable", dest="ai_core_executable", type=str, help="AI-Core executable path")
+    parser.add_argument(
+        "--model-command",
+        dest="model_command",
+        type=str,
+        help="Optional SwitchModel command string for AI-Core",
+    )
     parser.add_argument("--output-dir", dest="output_dir", type=str, help="Directory for test results")
     parser.add_argument("--log-signal", dest="log_signal", action="append", help="Signals to monitor (can be used multiple times)")
     parser.add_argument("--log-level", dest="log_level", type=str, help="Override logging level")
@@ -348,6 +390,18 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--monitor-seconds", dest="monitor_seconds", type=int, help="Maximum monitoring duration in seconds")
     parser.add_argument("--poll-interval", dest="poll_interval", type=float, default=0.5, help="Signal polling interval in seconds")
     parser.add_argument("--no-ai-core-launch", dest="skip_ai_core", action="store_true", help="Skip launching AI-Core executable")
+    parser.add_argument(
+        "--execution-mode",
+        dest="execution_mode",
+        choices=["local_file", "device"],
+        help="Select between local video playback and USB/webcam device workflow",
+    )
+    parser.add_argument(
+        "--result-basename",
+        dest="result_basename",
+        type=str,
+        help="Base filename used when exporting remote results",
+    )
     parser.set_defaults(loop_video=None)
     return parser.parse_args(argv)
 
@@ -390,19 +444,18 @@ def start_process(executable: Path, arguments: Iterable[str], logger) -> subproc
         raise ProcessLaunchError(f"Failed to launch {executable}: {exc}") from exc
 
 
-class TestAutomationController:
-    """High level orchestration of the PROVEtech:TA automation workflow."""
+
+class BaseAutomationController(ABC):
+    """Common scaffolding shared by all automation workflows."""
 
     def __init__(self, config: AutomationConfig, logger) -> None:
         self.config = config
         self.logger = logger
         self.channel: Optional[grpc.Channel] = None
-        self.system_stub: Optional[ta_grpc.SystemStub] = None
-        self.measure_stub: Optional[ta_grpc.MeasureStub] = None
 
     def connect(self) -> None:
-        """Connect to the PROVEtech:TA gRPC endpoint."""
-
+        if self.channel is not None:
+            return
         endpoint = self.config.grpc.endpoint
         self.logger.info("Connecting to PROVEtech:TA gRPC endpoint at %s", endpoint)
         options = [
@@ -410,59 +463,217 @@ class TestAutomationController:
             ("grpc.keepalive_timeout_ms", 5000),
         ]
         channel = grpc.insecure_channel(endpoint, options=options)
-        deadline = time.time() + max(self.config.timeout_ms / 1000.0, 5)
+        timeout_deadline = time.time() + max(self.config.timeout_ms / 1000.0, 5)
         try:
-            grpc.channel_ready_future(channel).result(timeout=deadline - time.time())
+            remaining = max(timeout_deadline - time.time(), 1)
+            grpc.channel_ready_future(channel).result(timeout=remaining)
         except Exception as exc:  # pragma: no cover - network heavy
             raise ConnectionError(f"Unable to connect to {endpoint}: {exc}") from exc
         self.channel = channel
-        self.system_stub = ta_grpc.SystemStub(channel)
-        self.measure_stub = ta_grpc.MeasureStub(channel)
+        self._build_stubs(channel)
         self.logger.info("Successfully connected to %s", endpoint)
 
-    def configure_video(self) -> None:
-        """Configure the video device and link it to AI-Core."""
+    @abstractmethod
+    def _build_stubs(self, channel: grpc.Channel) -> None:
+        """Initialise service stubs once the channel is ready."""
 
+    def close(self) -> None:
+        if self.channel is not None:
+            self.channel.close()
+            self.channel = None
+
+    @abstractmethod
+    def prepare(self) -> None:
+        """Prepare the environment prior to starting acquisition."""
+
+    @abstractmethod
+    def start(self) -> None:
+        """Begin the measurement/test execution."""
+
+    @abstractmethod
+    def wait_for_completion(
+        self, max_duration: Optional[int], poll_interval: float
+    ) -> List[Dict[str, Any]]:
+        """Monitor the requested signals until completion."""
+
+    @abstractmethod
+    def stop(self) -> None:
+        """Stop the execution gracefully."""
+
+    @abstractmethod
+    def fetch_test_result(self) -> Dict[str, Any]:
+        """Retrieve the aggregated test result payload."""
+
+    def save_remote_results(self, output_dir: Path) -> Optional[Path]:
+        """Request PROVEtech:TA to persist artefacts if supported."""
+
+        return None
+
+    def _call_rpc(self, method, request, name: str):
+        timeout_s = max(self.config.timeout_ms / 1000.0, 5)
+        try:
+            return method(request, timeout=timeout_s)
+        except grpc.RpcError as exc:
+            status = exc.code()
+            if status == grpc.StatusCode.DEADLINE_EXCEEDED:
+                self.logger.error(
+                    "RPC %s timed out after %sms", name, self.config.timeout_ms
+                )
+                raise TimeoutError(f"RPC {name} timed out") from exc
+            if status in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.UNIMPLEMENTED):
+                self.logger.error("RPC %s failed: %s", name, exc.details())
+                raise ConnectionError(f"RPC {name} failed: {exc.details()}") from exc
+            self.logger.exception("Unexpected RPC error for %s", name)
+            raise
+
+
+class LocalFileAutomationController(BaseAutomationController):
+    """Automation workflow relying on AI-Core local video playback."""
+
+    def __init__(self, config: AutomationConfig, logger) -> None:
+        super().__init__(config, logger)
+        self.application_stub: Optional[ta_grpc.ApplicationStub] = None
+        self.system_stub: Optional[ta_grpc.SystemStub] = None
+        self.measure_stub: Optional[ta_grpc.MeasureStub] = None
+
+    def _build_stubs(self, channel: grpc.Channel) -> None:
+        self.application_stub = ta_grpc.ApplicationStub(channel)
+        self.system_stub = ta_grpc.SystemStub(channel)
+        self.measure_stub = ta_grpc.MeasureStub(channel)
+
+    def prepare(self) -> None:
+        assert (
+            self.application_stub is not None
+            and self.system_stub is not None
+            and self.measure_stub is not None
+        )
+        self.logger.info("Initialising PROVEtech:TA application context")
+        self._call_rpc(
+            self.application_stub.Init,
+            ta_pb2.ApplicationInitRequest(),
+            "Application.Init",
+        )
+        self._configure_ai_core()
+        self._configure_video()
+        self._load_model()
+
+    def start(self) -> None:
+        self._start_measurement()
+
+    def wait_for_completion(
+        self, max_duration: Optional[int], poll_interval: float
+    ) -> List[Dict[str, Any]]:
+        assert self.measure_stub is not None and self.system_stub is not None
+        signals = self.config.test.log_signals
+        self.logger.info("Monitoring %d signals from AI-Core", len(signals))
+        collected: List[Dict[str, Any]] = []
+        start_time = time.time()
+
+        while True:
+            timestamp = datetime.now(timezone.utc).isoformat()
+            row: Dict[str, Any] = {"timestamp": timestamp}
+            for signal_name in signals:
+                row[signal_name] = self._read_signal(signal_name)
+            collected.append(row)
+
+            if not self._is_measurement_running():
+                self.logger.info("Measurement reported as finished")
+                break
+            if max_duration and (time.time() - start_time) >= max_duration:
+                self.logger.warning(
+                    "Maximum monitoring duration reached (%ss)", max_duration
+                )
+                break
+            time.sleep(poll_interval)
+        return collected
+
+    def stop(self) -> None:
+        self._stop_measurement()
+
+    def fetch_test_result(self) -> Dict[str, Any]:
+        assert self.system_stub is not None
+        response = self._call_rpc(
+            self.system_stub.GetResult,
+            ta_pb2.SystemGetResultRequest(),
+            "GetResult",
+        )
+        return {
+            "result": getattr(response, "RetVal", None),
+            "additional_result": getattr(response, "piAdditionalResultValue", None),
+            "add_to_protocol": getattr(response, "pbAddResultToProtocol", None),
+        }
+
+    def save_remote_results(self, output_dir: Path) -> Optional[Path]:
+        assert self.measure_stub is not None
+        basename = Path(self.config.test.result_basename)
+        if not basename.name:
+            return None
+        if basename.suffix:
+            export_path = basename
+        else:
+            export_path = basename.with_suffix(".csv")
+        if not (basename.is_absolute() or basename.drive):
+            output_dir = output_dir.expanduser().resolve()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            export_path = output_dir / export_path
+        label = basename.stem or basename.name
+        response = self._call_rpc(
+            self.measure_stub.SaveFile,
+            ta_pb2.MeasureSaveFileRequest(
+                strLabel=label,
+                strType="CSV",
+                strFileName=str(export_path),
+            ),
+            "MeasureSaveFile",
+        )
+        if getattr(response, "RetVal", False):
+            return Path(export_path)
+        self.logger.warning("Unable to persist remote measurement file at %s", export_path)
+        return None
+
+    def _configure_video(self) -> None:
         assert self.system_stub is not None and self.measure_stub is not None
         video = self.config.video
         mode = video.mode.lower()
         if mode not in {"device", "webcam", "file"}:
             raise ConfigurationError(f"Unsupported video mode: {video.mode}")
-        self.logger.info(
-            "Configuring video source %s (%s) at resolution %s in %s mode",
-            video.device_name,
-            video.driver_id,
-            video.resolution,
-            mode,
-        )
-        config_payload = {
-            "device_name": video.device_name,
-            "driver_id": video.driver_id,
-            "resolution": video.resolution,
-            "share_with_model": self.config.test.model_name,
-            "mode": mode,
-        }
-        if mode == "webcam" and video.webcam_index is not None:
-            config_payload["webcam_index"] = video.webcam_index
-        if mode == "file":
-            if video.file_path is None:
-                raise ConfigurationError("Video file path must be provided when mode is 'file'")
-            file_path = video.file_path.expanduser()
-            if not file_path.exists():
-                raise ConfigurationError(f"Configured video file does not exist: {file_path}")
-            config_payload["file_path"] = str(file_path)
-            config_payload["loop_file"] = video.loop_file
-        request = ta_pb2.SystemModifyVideoAudioConfigRequest(
-            strSourceName=video.device_name,
-            strConfig=json.dumps(config_payload),
-            strShareWithModelNode=self.config.test.model_name,
-        )
-        self._call_rpc(
-            self.system_stub.ModifyVideoAudioConfig,
-            request,
-            "ModifyVideoAudioConfig",
-        )
-
+        if mode == "file" and video.file_path is None:
+            self.logger.info(
+                "Video mode 'file' selected without explicit path; using AI-Core binding"
+            )
+        else:
+            config_payload = {
+                "device_name": video.device_name,
+                "driver_id": video.driver_id,
+                "resolution": video.resolution,
+                "share_with_model": self.config.test.model_name,
+                "mode": mode,
+                "device_type": video.device_type,
+            }
+            if mode == "webcam" and video.webcam_index is not None:
+                config_payload["webcam_index"] = video.webcam_index
+            if mode == "file":
+                if video.file_path is None:
+                    raise ConfigurationError(
+                        "Video file path must be provided when mode is 'file'"
+                    )
+                expanded_path = video.file_path.expanduser()
+                if not expanded_path.exists():
+                    raise ConfigurationError(
+                        f"Configured video file does not exist: {expanded_path}"
+                    )
+                config_payload["file_path"] = str(expanded_path)
+                config_payload["loop_file"] = video.loop_file
+            request = ta_pb2.SystemModifyVideoAudioConfigRequest(
+                strSourceName=video.device_name,
+                strConfig=json.dumps(config_payload),
+                strShareWithModelNode=self.config.test.model_name,
+            )
+            self._call_rpc(
+                self.system_stub.ModifyVideoAudioConfig,
+                request,
+                "ModifyVideoAudioConfig",
+            )
         measure_request = ta_pb2.MeasureSetVideoAudioRequest(
             strName=video.device_name,
             bActivate=True,
@@ -475,20 +686,23 @@ class TestAutomationController:
             "SetVideoAudio",
         )
 
-    def configure_ai_core(self) -> None:
-        """Configure the AI-Core executable and project file."""
-
+    def _configure_ai_core(self) -> None:
         assert self.system_stub is not None
         ai_core = self.config.ai_core
-        timeout_seconds = math.ceil(ai_core.timeout_ms / 1000.0)
-        config_payload = {
-            "executable": str(ai_core.executable),
-            "config_file": str(ai_core.config_file),
-            "parallel_instances": ai_core.parallel_instances,
-        }
+        timeout_seconds = max(1, math.ceil(ai_core.timeout_ms / 1000.0))
+        if ai_core.model_command:
+            config_str = ai_core.model_command
+            self.logger.info("Applying explicit AI-Core command: %s", config_str)
+        else:
+            config_payload = {
+                "executable": str(ai_core.executable),
+                "config_file": str(ai_core.config_file),
+                "parallel_instances": ai_core.parallel_instances,
+            }
+            config_str = json.dumps(config_payload)
         request = ta_pb2.SystemModifyModelNodeConfigRequest(
             strModelNodeName=self.config.test.model_name,
-            strConfig=json.dumps(config_payload),
+            strConfig=config_str,
             lTimeoutInSeconds=timeout_seconds,
         )
         self._call_rpc(
@@ -497,117 +711,235 @@ class TestAutomationController:
             "ModifyModelNodeConfig",
         )
 
-    def load_model(self) -> None:
-        """Load the requested detection model within PROVEtech:TA."""
-
+    def _load_model(self) -> None:
         assert self.system_stub is not None
         model_name = self.config.test.model_name
         self.logger.info("Loading detection model '%s'", model_name)
         request = ta_pb2.SystemLoadModelRequest(strModelName=model_name)
         self._call_rpc(self.system_stub.LoadModel, request, "LoadModel")
 
-    def start_measurement(self) -> None:
-        """Start the measurement run to stream video and AI signals."""
-
+    def _start_measurement(self) -> None:
         assert self.measure_stub is not None
         self.logger.info("Starting measurement run")
         request = ta_pb2.MeasureStartRequest(bSaveToDisk=False)
         self._call_rpc(self.measure_stub.Start, request, "MeasureStart")
 
-    def wait_for_completion(self, max_duration: Optional[int], poll_interval: float) -> List[Dict[str, Any]]:
-        """Monitor configured signals until the measurement stops."""
-
-        assert self.measure_stub is not None and self.system_stub is not None
-        signals = self.config.test.log_signals
-        self.logger.info("Monitoring %d signals from AI-Core", len(signals))
-        collected: List[Dict[str, Any]] = []
-        start_time = time.time()
-
-        while True:
-            timestamp = datetime.now(timezone.utc).isoformat()
-            row: Dict[str, Any] = {"timestamp": timestamp}
-            for signal_name in signals:
-                value = self._read_signal(signal_name)
-                row[signal_name] = value
-            collected.append(row)
-
-            running = self._is_measurement_running()
-            if not running:
-                self.logger.info("Measurement reported as finished")
-                break
-            if max_duration and (time.time() - start_time) >= max_duration:
-                self.logger.warning("Maximum monitoring duration reached (%ss)", max_duration)
-                break
-            time.sleep(poll_interval)
-        return collected
-
-    def stop_measurement(self) -> None:
-        """Stop the measurement if it is still running."""
-
+    def _stop_measurement(self) -> None:
         assert self.measure_stub is not None
         self.logger.info("Stopping measurement")
         request = ta_pb2.MeasureStopRequest()
         self._call_rpc(self.measure_stub.Stop, request, "MeasureStop")
 
-    def fetch_test_result(self) -> Dict[str, Any]:
-        """Retrieve the overall test result from PROVEtech:TA."""
-
-        assert self.system_stub is not None
-        request = ta_pb2.SystemGetResultRequest()
-        response = self._call_rpc(
-            self.system_stub.GetResult,
-            request,
-            "GetResult",
-        )
-        result_value = getattr(response, "RetVal", None)
-        additional = getattr(response, "piAdditionalResultValue", None)
-        add_to_protocol = getattr(response, "pbAddResultToProtocol", None)
-        return {
-            "result": result_value,
-            "additional_result": additional,
-            "add_to_protocol": add_to_protocol,
-        }
-
     def _is_measurement_running(self) -> bool:
         assert self.measure_stub is not None
-        request = ta_pb2.MeasureIsRunningRequest()
         response = self._call_rpc(
             self.measure_stub.IsRunning,
-            request,
+            ta_pb2.MeasureIsRunningRequest(),
             "MeasureIsRunning",
         )
         return bool(getattr(response, "RetVal", False))
 
     def _read_signal(self, signal_name: str) -> Any:
         assert self.system_stub is not None
-        request = ta_pb2.SystemGetSignalRequest(
-            strSignalName=signal_name,
-            bInterpreted=True,
-        )
         response = self._call_rpc(
             self.system_stub.GetSignal,
-            request,
+            ta_pb2.SystemGetSignalRequest(
+                strSignalName=signal_name,
+                bInterpreted=True,
+            ),
             f"GetSignal[{signal_name}]",
         )
-        which = response.WhichOneof("RetVal")
-        if not which:
-            raise RuntimeError(f"Signal {signal_name} returned no value")
-        return getattr(response, which)
+        return _interpret_signal_response(response)
 
-    def _call_rpc(self, method, request, name: str):
-        timeout_s = max(self.config.timeout_ms / 1000.0, 5)
-        try:
-            return method(request, timeout=timeout_s)
-        except grpc.RpcError as exc:
-            status = exc.code()
-            if status == grpc.StatusCode.DEADLINE_EXCEEDED:
-                self.logger.error("RPC %s timed out after %sms", name, self.config.timeout_ms)
-                raise TimeoutError(f"RPC {name} timed out") from exc
-            if status in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.UNIMPLEMENTED):
-                self.logger.error("RPC %s failed: %s", name, exc.details())
-                raise ConnectionError(f"RPC {name} failed: {exc.details()}") from exc
-            self.logger.exception("Unexpected RPC error for %s", name)
-            raise
+
+def create_controller(config: AutomationConfig, logger) -> BaseAutomationController:
+    """Factory creating the appropriate automation controller."""
+
+    mode = config.test.execution_mode.lower()
+    if mode == "local_file":
+        return LocalFileAutomationController(config, logger)
+    if mode == "device":
+        return DeviceAutomationController(config, logger)
+    raise ConfigurationError(f"Unsupported execution mode: {config.test.execution_mode}")
+
+
+class DeviceAutomationController(BaseAutomationController):
+    """Automation workflow driven by the consolidated TestAutomationService."""
+
+    def __init__(self, config: AutomationConfig, logger) -> None:
+        super().__init__(config, logger)
+        self.test_stub: Optional[ta_grpc.TestAutomationServiceStub] = None
+        self.system_stub: Optional[ta_grpc.SystemStub] = None
+        self.last_start_reply: Optional[ta_pb2.StartTestReply] = None
+        self.device_reply: Optional[ta_pb2.DeviceConfigurationReply] = None
+        self.communication_reply: Optional[ta_pb2.CommunicationReply] = None
+
+    def _build_stubs(self, channel: grpc.Channel) -> None:
+        self.test_stub = ta_grpc.TestAutomationServiceStub(channel)
+        self.system_stub = ta_grpc.SystemStub(channel)
+
+    def prepare(self) -> None:
+        assert self.test_stub is not None
+        self._register_video_device()
+        self._set_video_source()
+        self._push_configuration_entries()
+        self._activate_communication()
+
+    def start(self) -> None:
+        assert self.test_stub is not None
+        request = ta_pb2.StartTestRequest(model=self.config.test.model_name)
+        self.last_start_reply = self._call_rpc(
+            self.test_stub.StartTesting,
+            request,
+            "StartTesting",
+        )
+        message = getattr(self.last_start_reply, "message", "")
+        if message:
+            self.logger.info("StartTesting: %s", message)
+
+    def wait_for_completion(
+        self, max_duration: Optional[int], poll_interval: float
+    ) -> List[Dict[str, Any]]:
+        assert self.test_stub is not None
+        signals = self.config.test.log_signals
+        self.logger.info(
+            "Monitoring %d signals via TestAutomationService", len(signals)
+        )
+        collected: List[Dict[str, Any]] = []
+        duration_limit = max_duration if max_duration else 30
+        if not max_duration:
+            self.logger.info(
+                "No monitor duration provided; defaulting to %ss", duration_limit
+            )
+        start_time = time.time()
+        while True:
+            timestamp = datetime.now(timezone.utc).isoformat()
+            row: Dict[str, Any] = {"timestamp": timestamp}
+            for signal_name in signals:
+                row[signal_name] = self._read_signal(signal_name)
+            collected.append(row)
+            elapsed = time.time() - start_time
+            if duration_limit and elapsed >= duration_limit:
+                self.logger.info("Reached monitoring window of %ss", duration_limit)
+                break
+            time.sleep(poll_interval)
+        return collected
+
+    def stop(self) -> None:
+        assert self.test_stub is not None
+        self._call_rpc(
+            self.test_stub.StopTesting,
+            ta_pb2.StopTestRequest(),
+            "StopTesting",
+        )
+
+    def fetch_test_result(self) -> Dict[str, Any]:
+        return {
+            "start_success": getattr(self.last_start_reply, "success", None),
+            "start_message": getattr(self.last_start_reply, "message", None),
+            "device_registered": getattr(self.device_reply, "success", None),
+            "communication_enabled": getattr(self.communication_reply, "success", None),
+        }
+
+    def save_remote_results(self, output_dir: Path) -> Optional[Path]:
+        assert self.test_stub is not None
+        basename = Path(self.config.test.result_basename)
+        if basename.suffix:
+            export_path = basename
+        else:
+            export_path = basename.with_suffix(".json")
+        if not (basename.is_absolute() or basename.drive):
+            output_dir = output_dir.expanduser().resolve()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            export_path = output_dir / export_path
+        response = self._call_rpc(
+            self.test_stub.SaveResult,
+            ta_pb2.ResultExportRequest(path=str(export_path)),
+            "SaveResult",
+        )
+        if getattr(response, "success", False):
+            message = getattr(response, "message", "")
+            if message:
+                self.logger.info("SaveResult: %s", message)
+            return Path(export_path)
+        self.logger.warning("Remote result export rejected for %s", export_path)
+        return None
+
+    def _register_video_device(self) -> None:
+        assert self.test_stub is not None
+        video = self.config.video
+        request = ta_pb2.DeviceConfiguration(
+            name=video.device_name,
+            driver_id=video.driver_id,
+            type=video.device_type,
+            resolution=video.resolution,
+            enable=True,
+        )
+        if video.webcam_index is not None:
+            request.webcam_index = int(video.webcam_index)
+        self.device_reply = self._call_rpc(
+            self.test_stub.AddDevice,
+            request,
+            "AddDevice",
+        )
+        message = getattr(self.device_reply, "message", "")
+        if message:
+            self.logger.info("AddDevice: %s", message)
+
+    def _set_video_source(self) -> None:
+        assert self.test_stub is not None
+        reply = self._call_rpc(
+            self.test_stub.SetVideoSource,
+            ta_pb2.DeviceIdentifier(name=self.config.video.device_name),
+            "SetVideoSource",
+        )
+        message = getattr(reply, "message", "")
+        if message:
+            self.logger.info("SetVideoSource: %s", message)
+
+    def _push_configuration_entries(self) -> None:
+        assert self.test_stub is not None
+        ai_core = self.config.ai_core
+        entries = [
+            ("AICORE_PATH", str(ai_core.executable)),
+            ("TEST_CONFIG_PATH", str(ai_core.config_file)),
+            ("CONNECTION_TIMEOUT", str(ai_core.timeout_ms)),
+        ]
+        if ai_core.model_command:
+            entries.append(("MODEL_SWITCH_COMMAND", ai_core.model_command))
+        for key, value in entries:
+            reply = self._call_rpc(
+                self.test_stub.SetConfiguration,
+                ta_pb2.ConfigEntry(key=key, value=value),
+                f"SetConfiguration[{key}]",
+            )
+            message = getattr(reply, "message", "")
+            if message:
+                self.logger.info("SetConfiguration[%s]: %s", key, message)
+
+    def _activate_communication(self) -> None:
+        assert self.test_stub is not None
+        self.communication_reply = self._call_rpc(
+            self.test_stub.ActivateCommunication,
+            ta_pb2.CommunicationRequest(enable=True),
+            "ActivateCommunication",
+        )
+        message = getattr(self.communication_reply, "message", "")
+        if message:
+            self.logger.info("ActivateCommunication: %s", message)
+
+    def _read_signal(self, signal_name: str) -> Any:
+        assert self.test_stub is not None
+        response = self._call_rpc(
+            self.test_stub.GetSignal,
+            ta_pb2.SystemGetSignalRequest(
+                strSignalName=signal_name,
+                bInterpreted=True,
+            ),
+            f"GetSignal[{signal_name}]",
+        )
+        return _interpret_signal_response(response)
+
 
 
 def export_results(data: List[Dict[str, Any]], metadata: Dict[str, Any], output_dir: Path, logger) -> None:
@@ -683,6 +1015,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     ai_core_process = None
     ta_process = None
+    controller: Optional[BaseAutomationController] = None
 
     try:
         ta_process = launch_provetech(config, logger, args.skip_ta_launch)
@@ -691,21 +1024,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             logger.info("Waiting for PROVEtech:TA to initialise")
             time.sleep(5)
 
-        controller = TestAutomationController(config, logger)
+        controller = create_controller(config, logger)
         controller.connect()
 
-        ai_core_process = launch_ai_core(config, logger, args.skip_ai_core)
+        if config.test.execution_mode == "local_file":
+            ai_core_process = launch_ai_core(config, logger, args.skip_ai_core)
+        else:
+            ai_core_process = None
+            if not args.skip_ai_core:
+                logger.info(
+                    "Execution mode 'device' relies on PROVEtech:TA to manage AI-Core; skipping manual launch"
+                )
 
-        controller.configure_video()
-        controller.configure_ai_core()
-        controller.load_model()
-        controller.start_measurement()
+        controller.prepare()
+        controller.start()
         signal_data = controller.wait_for_completion(
             max_duration=args.monitor_seconds,
             poll_interval=args.poll_interval,
         )
-        controller.stop_measurement()
+        controller.stop()
         test_result = controller.fetch_test_result()
+
+        remote_artifact = controller.save_remote_results(config.test.output_dir)
+        if remote_artifact:
+            test_result.setdefault("remote_result_path", str(remote_artifact))
 
         export_results(signal_data, test_result, config.test.output_dir, logger)
         logger.info("Automation workflow completed successfully")
@@ -721,10 +1063,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             _terminate_process(ai_core_process, logger)
         if ta_process is not None:
             _terminate_process(ta_process, logger)
-        if controller := locals().get("controller"):
-            channel = getattr(controller, "channel", None)
-            if channel is not None:
-                channel.close()
+        if controller is not None:
+            controller.close()
 
 
 if __name__ == "__main__":

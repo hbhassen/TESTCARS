@@ -6,11 +6,13 @@ ai_core:
   config_file: "C:/AIcoreProjects/DetectMode/detectmode.cfg"
   timeout_ms: 10000
   parallel_instances: 1
+  # model_command: "SwitchModel IconDetection 'D:/DetectMode/model.modelcfg'"
 video:
   mode: "device"
   device_name: "FrontCam"
   driver_id: "IntegratedCamera0"
   resolution: "1920x1080"
+  device_type: "VIDEO"
   # file_path: "D:/Recordings/frontcam.mp4"
   # webcam_index: 0
   loop_file: false
@@ -18,6 +20,8 @@ test:
   model_name: "DetectModeModel"
   ta_executable: "C:/Program Files/PROVEtech/PROVEtechTA.exe"
   output_dir: "./results"
+  execution_mode: "local_file"
+  result_basename: "detectmode_run"
   log_signals:
     - "IconDetection.Result"
     - "IconDetection.Score"

@@ -14,6 +14,10 @@ collects KPI signals and results for offline analysis.
 - Start detection models and monitor live AI-Core signals.
 - Export captured signals to CSV and JSON artefacts under the configured
   results directory.
+- Support both AI-Core local playback scenarios and TestAutomationService-based
+  USB/webcam camera execution modes from a single configuration file.
+- Trigger remote exports in PROVEtech:TA (`Measure.SaveFile` or `SaveResult`)
+  alongside locally generated artefacts.
 - Robust logging with timestamps and CLI overrides for mission-critical
   parameters.
 
@@ -67,9 +71,10 @@ parameters. Key sections include:
 - `grpc`: Hostname and port for PROVEtech:TA's automation server.
 - `ai_core`: Executable path, project configuration, timeout, and instance
   count.
-- `video`: Ingestion mode plus camera/webcam identifiers and resolution to stream.
-- `test`: Detection model name, PROVEtech:TA executable path, result folder,
-  and monitored signal list.
+- `video`: Ingestion mode plus camera/webcam identifiers, resolution, and device
+  type when registering hardware through gRPC.
+- `test`: Detection model name, execution mode, PROVEtech:TA executable path,
+  remote export basename, result folder, and monitored signal list.
 - `logging`: Log level and output file path.
 
 ## Running the Automation
@@ -98,6 +103,20 @@ python automate_test.py `
 
 # Point to an alternative configuration file and skip launching PROVEtech:TA
 python automate_test.py --config C:/Configs/nightly.yaml --skip-ta-launch
+
+# Register a USB camera via TestAutomationService
+python automate_test.py `
+    --execution-mode device `
+    --video-source FrontCam `
+    --device-type VIDEO `
+    --video-driver USB_Cam_0 `
+    --model DetectModeModel
+
+# Force a specific AI-Core model without restarting the UI
+python automate_test.py --execution-mode local_file --model-command "SwitchModel IconDetection 'D:/DetectMode/model.modelcfg'"
+
+# Customise the remote export filename
+python automate_test.py --result-basename D:/results/DetectMode_run01
 ```
 
 To switch between a PC webcam and recorded footage without editing the YAML:
@@ -114,25 +133,47 @@ Refer to `python automate_test.py --help` for the full list of switches,
 including `--ai-core-config`, `--ai-core-executable`, `--log-signal`, and
 `--monitor-seconds`.
 
+## Execution Modes
+
+Two orchestration paths are available through the `test.execution_mode`
+setting:
+
+- **`local_file`** (default) initialises PROVEtech:TA via the `Application`,
+  `System`, and `Measure` services. Use this mode when AI-Core replays a video
+  configured in its UI. You can provide a `model_command` such as
+  `SwitchModel …` to change the loaded model and a `result_basename` to persist
+  remote CSV files through `Measure.SaveFile`.
+- **`device`** targets USB/webcam cameras connected to PROVEtech:TA's
+  TestAutomationService. The automation registers the device (`AddDevice`),
+  selects it as the active source, pushes AI-Core configuration entries, and
+  starts the test via `StartTesting`. Remote artefacts are exported through
+  `SaveResult` using the configured `result_basename`.
+
 ## Video Ingestion Scenarios
 
 ### Using the PC Webcam
 
-1. Update `config.yaml` with `video.mode: "webcam"` and optionally set
-   `video.webcam_index` if multiple cameras are present.
+1. Decide which execution mode fits your setup:
+   - `local_file`: set `video.mode: "webcam"` and optionally `video.webcam_index`
+     so that PROVEtech:TA routes the Windows webcam through the classic
+     System/Measure services. Launch with
+     `--execution-mode local_file --video-mode webcam --webcam-index 0`.
+   - `device`: keep `video.mode` at `device`, ensure `video.device_type` matches
+     the driver, and run with `--execution-mode device --video-source FrontCam`.
 2. Keep `video.device_name` aligned with the logical node configured inside
-   PROVEtech:TA.
-3. Launch the automation as usual or override from the CLI with
-   `--video-mode webcam --webcam-index 0`.
+   PROVEtech:TA so the gRPC calls bind to the correct source.
+3. Use `video.result_basename` / `--result-basename` to point at a writable
+   location when you need PROVEtech:TA to generate additional artefacts.
 
 ### Replaying Recorded Footage
 
-1. Set `video.mode: "file"` inside `config.yaml` and point `video.file_path`
+1. Ensure `test.execution_mode` is set to `local_file`.
+2. Set `video.mode: "file"` inside `config.yaml` and point `video.file_path`
    to the desired media file.
-2. Toggle `video.loop_file: true` (or use `--loop-video`) to loop playback for
+3. Toggle `video.loop_file: true` (or use `--loop-video`) to loop playback for
    long-running regressions.
-3. Start the automation or override dynamically with
-   `--video-mode file --video-file D:/Recordings/run01.mp4`.
+4. Start the automation or override dynamically with
+   `--execution-mode local_file --video-mode file --video-file D:/Recordings/run01.mp4`.
 
 ## Result Artefacts
 

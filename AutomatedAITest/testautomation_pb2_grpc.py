@@ -6,6 +6,17 @@ import grpc
 import testautomation_pb2 as testautomation__pb2
 
 
+class ApplicationStub:
+    """Client stub for the Application service."""
+
+    def __init__(self, channel: grpc.Channel) -> None:
+        self.Init = channel.unary_unary(
+            "/testautomation.Application/Init",
+            request_serializer=testautomation__pb2.ApplicationInitRequest.SerializeToString,
+            response_deserializer=testautomation__pb2.ApplicationInitReply.FromString,
+        )
+
+
 class SystemStub:
     """Client stub for the System service."""
 
@@ -61,6 +72,57 @@ class MeasureStub:
             request_serializer=testautomation__pb2.MeasureIsRunningRequest.SerializeToString,
             response_deserializer=testautomation__pb2.MeasureIsRunningReply.FromString,
         )
+        self.SaveFile = channel.unary_unary(
+            "/testautomation.Measure/SaveFile",
+            request_serializer=testautomation__pb2.MeasureSaveFileRequest.SerializeToString,
+            response_deserializer=testautomation__pb2.MeasureSaveFileReply.FromString,
+        )
 
 
-__all__ = ["SystemStub", "MeasureStub"]
+class TestAutomationServiceStub:
+    """High-level orchestration service exposed by PROVEtech:TA."""
+
+    def __init__(self, channel: grpc.Channel) -> None:
+        self.AddDevice = channel.unary_unary(
+            "/testautomation.TestAutomationService/AddDevice",
+            request_serializer=testautomation__pb2.DeviceConfiguration.SerializeToString,
+            response_deserializer=testautomation__pb2.DeviceConfigurationReply.FromString,
+        )
+        self.SetVideoSource = channel.unary_unary(
+            "/testautomation.TestAutomationService/SetVideoSource",
+            request_serializer=testautomation__pb2.DeviceIdentifier.SerializeToString,
+            response_deserializer=testautomation__pb2.VideoSourceReply.FromString,
+        )
+        self.SetConfiguration = channel.unary_unary(
+            "/testautomation.TestAutomationService/SetConfiguration",
+            request_serializer=testautomation__pb2.ConfigEntry.SerializeToString,
+            response_deserializer=testautomation__pb2.ConfigEntryReply.FromString,
+        )
+        self.ActivateCommunication = channel.unary_unary(
+            "/testautomation.TestAutomationService/ActivateCommunication",
+            request_serializer=testautomation__pb2.CommunicationRequest.SerializeToString,
+            response_deserializer=testautomation__pb2.CommunicationReply.FromString,
+        )
+        self.StartTesting = channel.unary_unary(
+            "/testautomation.TestAutomationService/StartTesting",
+            request_serializer=testautomation__pb2.StartTestRequest.SerializeToString,
+            response_deserializer=testautomation__pb2.StartTestReply.FromString,
+        )
+        self.GetSignal = channel.unary_unary(
+            "/testautomation.TestAutomationService/GetSignal",
+            request_serializer=testautomation__pb2.SystemGetSignalRequest.SerializeToString,
+            response_deserializer=testautomation__pb2.SystemGetSignalReply.FromString,
+        )
+        self.SaveResult = channel.unary_unary(
+            "/testautomation.TestAutomationService/SaveResult",
+            request_serializer=testautomation__pb2.ResultExportRequest.SerializeToString,
+            response_deserializer=testautomation__pb2.ResultExportReply.FromString,
+        )
+        self.StopTesting = channel.unary_unary(
+            "/testautomation.TestAutomationService/StopTesting",
+            request_serializer=testautomation__pb2.StopTestRequest.SerializeToString,
+            response_deserializer=testautomation__pb2.StopTestReply.FromString,
+        )
+
+
+__all__ = ["ApplicationStub", "SystemStub", "MeasureStub", "TestAutomationServiceStub"]
