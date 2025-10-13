@@ -1,5 +1,5 @@
-grpcio>=1.62.0
-grpcio-tools>=1.62.0
-protobuf>=4.25.0
+grpcio>=1.75.1
+grpcio-tools>=1.75.1
+protobuf>=6.31.1
 requests>=2.31.0
 pandas>=2.2.0
