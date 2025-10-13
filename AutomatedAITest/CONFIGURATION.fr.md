@@ -19,9 +19,13 @@ ai_core:
   timeout_ms: 10000
   parallel_instances: 1
 video:
+  mode: "device"
   device_name: "FrontCam"
   driver_id: "IntegratedCamera0"
   resolution: "1920x1080"
+  # file_path: "D:/Recordings/frontcam.mp4"
+  # webcam_index: 0
+  loop_file: false
 test:
   model_name: "DetectModeModel"
   ta_executable: "C:/Program Files/PROVEtech/PROVEtechTA.exe"
@@ -54,9 +58,13 @@ logging:
 
 | Clé | Valeur par défaut | Description |
 | --- | ----------------- | ----------- |
+| `mode` | `device` | Mode d'ingestion : `device` conserve la capture matérielle, `webcam` utilise la webcam locale et `file` rejoue une vidéo enregistrée. Remplaçable avec `--video-mode`. |
 | `device_name` | `FrontCam` | Nom logique de la source vidéo dans PROVEtech:TA. Remplaçable avec `--video-source`. |
 | `driver_id` | `IntegratedCamera0` | Identifiant du pilote utilisé par PROVEtech:TA pour lier le périphérique. Remplaçable avec `--video-driver`. |
 | `resolution` | `1920x1080` | Résolution de capture (Largeur x Hauteur). Remplaçable avec `--resolution`. |
+| `file_path` | _non défini_ | Chemin absolu ou relatif de la vidéo enregistrée lorsque `mode` vaut `file`. Remplaçable avec `--video-file`. |
+| `webcam_index` | _non défini_ | Index numérique de la webcam Windows à utiliser lorsque `mode` vaut `webcam`. Remplaçable avec `--webcam-index`. |
+| `loop_file` | `false` | Boucler la lecture de la vidéo enregistrée au lieu de s'arrêter en fin de fichier. Activable via `--loop-video` / `--no-loop-video`. |
 
 ### test
 
@@ -90,6 +98,16 @@ python automate_test.py `
 python automate_test.py --grpc-host 10.10.1.20 --grpc-port 51000
 ```
 
+Pour exploiter temporairement la webcam du PC ou rejouer un fichier sans modifier le YAML :
+
+```powershell
+# Capture webcam
+python automate_test.py --video-mode webcam --webcam-index 0
+
+# Lecture d'une vidéo enregistrée en boucle
+python automate_test.py --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
+```
+
 ## Scénarios avancés
 
 ### Commutation dynamique de modèles
@@ -118,7 +136,13 @@ Des chemins réseau à forte latence ou des séquences de démarrage lentes peuv
 
 ### Changement de source vidéo
 
-Utilisez `--video-source` et `--video-driver` pour sélectionner une autre caméra sans modifier le YAML. Si la résolution diffère selon le capteur, ajoutez `--resolution 1280x720` (ou un autre format valide). Le script applique les changements via `SystemModifyVideoAudioConfig` avant de démarrer la mesure.
+Choisissez le mode d'ingestion via `video.mode` (ou `--video-mode`).
+
+- `device` — Conserve le flux provenant d'une carte de capture ou d'un driver dédié. Combinez avec `--video-source`, `--video-driver` et `--resolution` pour sélectionner le canal voulu.
+- `webcam` — Exploite directement la webcam Windows locale. Fournissez l'index avec `video.webcam_index` ou `--webcam-index 0`. Le nom logique `--video-source` reste disponible pour respecter la nomenclature PROVEtech:TA.
+- `file` — Rejoue une vidéo enregistrée depuis le disque. Renseignez le chemin avec `video.file_path` ou `--video-file D:/Recordings/run01.mp4` et bouclez la lecture via `video.loop_file` / `--loop-video` si nécessaire.
+
+À chaque changement de mode, le script adapte automatiquement la charge envoyée à `SystemModifyVideoAudioConfig`.
 
 ## Considérations de sécurité (gRPC sur TLS)
 

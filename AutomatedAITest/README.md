@@ -10,7 +10,7 @@ collects KPI signals and results for offline analysis.
 
 - Launch PROVEtech:TA in gRPC automation mode with a custom port.
 - Configure AI-Core executable, project configuration, and timeout settings.
-- Set up video routing (device, driver, resolution) for AI-Core ingestion.
+- Set up video routing (device, webcam, recorded video) for AI-Core ingestion.
 - Start detection models and monitor live AI-Core signals.
 - Export captured signals to CSV and JSON artefacts under the configured
   results directory.
@@ -67,7 +67,7 @@ parameters. Key sections include:
 - `grpc`: Hostname and port for PROVEtech:TA's automation server.
 - `ai_core`: Executable path, project configuration, timeout, and instance
   count.
-- `video`: Camera name, driver identifier, and resolution to stream.
+- `video`: Ingestion mode plus camera/webcam identifiers and resolution to stream.
 - `test`: Detection model name, PROVEtech:TA executable path, result folder,
   and monitored signal list.
 - `logging`: Log level and output file path.
@@ -100,9 +100,39 @@ python automate_test.py `
 python automate_test.py --config C:/Configs/nightly.yaml --skip-ta-launch
 ```
 
+To switch between a PC webcam and recorded footage without editing the YAML:
+
+```powershell
+# Stream from the built-in webcam (index 0)
+python automate_test.py --video-mode webcam --webcam-index 0 --video-source PCWebcam
+
+# Replay a recorded file on loop for regression runs
+python automate_test.py --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
+```
+
 Refer to `python automate_test.py --help` for the full list of switches,
 including `--ai-core-config`, `--ai-core-executable`, `--log-signal`, and
 `--monitor-seconds`.
+
+## Video Ingestion Scenarios
+
+### Using the PC Webcam
+
+1. Update `config.yaml` with `video.mode: "webcam"` and optionally set
+   `video.webcam_index` if multiple cameras are present.
+2. Keep `video.device_name` aligned with the logical node configured inside
+   PROVEtech:TA.
+3. Launch the automation as usual or override from the CLI with
+   `--video-mode webcam --webcam-index 0`.
+
+### Replaying Recorded Footage
+
+1. Set `video.mode: "file"` inside `config.yaml` and point `video.file_path`
+   to the desired media file.
+2. Toggle `video.loop_file: true` (or use `--loop-video`) to loop playback for
+   long-running regressions.
+3. Start the automation or override dynamically with
+   `--video-mode file --video-file D:/Recordings/run01.mp4`.
 
 ## Result Artefacts
 
@@ -145,7 +175,7 @@ AutomatedAITest est un outil d'orchestration écrit en Python qui automatise de 
 
 - Lancement de PROVEtech:TA en mode automatisation gRPC avec port personnalisé.
 - Configuration de l'exécutable AI-Core, du projet, et des paramètres de temporisation.
-- Mise en place de l'acheminement vidéo (périphérique, pilote, résolution) pour l'ingestion AI-Core.
+- Mise en place de l'acheminement vidéo (périphérique, webcam, vidéo enregistrée) pour l'ingestion AI-Core.
 - Démarrage des modèles de détection et surveillance des signaux AI-Core en direct.
 - Export des signaux capturés vers des artefacts CSV et JSON dans le répertoire de résultats configuré.
 - Journalisation robuste avec horodatages et paramètres critiques surchargés en ligne de commande.
@@ -192,7 +222,7 @@ Toutes les valeurs de configuration se trouvent dans `config.yaml`. Les valeurs 
 
 - `grpc` : nom d'hôte et port du serveur d'automatisation PROVEtech:TA.
 - `ai_core` : chemin de l'exécutable, fichier de configuration projet, temporisation et nombre d'instances.
-- `video` : nom de caméra, identifiant de pilote et résolution à diffuser.
+- `video` : mode d'ingestion ainsi que les identifiants caméra/webcam et la résolution à diffuser.
 - `test` : nom du modèle de détection, chemin de PROVEtech:TA, dossier de résultats et liste de signaux surveillés.
 - `logging` : niveau de journalisation et chemin du fichier de log.
 
@@ -223,7 +253,31 @@ python automate_test.py `
 python automate_test.py --config C:/Configs/nightly.yaml --skip-ta-launch
 ```
 
+Pour alterner entre la webcam du PC et une vidéo enregistrée sans modifier le YAML :
+
+```powershell
+# Diffuser depuis la webcam intégrée (index 0)
+python automate_test.py --video-mode webcam --webcam-index 0 --video-source PCWebcam
+
+# Rejouer un fichier vidéo en boucle pour des régressions
+python automate_test.py --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
+```
+
 Consultez `python automate_test.py --help` pour la liste complète des options, notamment `--ai-core-config`, `--ai-core-executable`, `--log-signal` et `--monitor-seconds`.
+
+### Scénarios d'ingestion vidéo
+
+#### Utiliser la webcam du PC
+
+1. Définissez `video.mode: "webcam"` dans `config.yaml` et indiquez `video.webcam_index` si plusieurs caméras sont présentes.
+2. Conservez `video.device_name` aligné avec le nœud logique configuré dans PROVEtech:TA.
+3. Lancez l'automatisation normalement ou surchargez via la CLI avec `--video-mode webcam --webcam-index 0`.
+
+#### Rejouer une vidéo enregistrée
+
+1. Renseignez `video.mode: "file"` dans `config.yaml` et `video.file_path` vers le média souhaité.
+2. Activez `video.loop_file: true` (ou utilisez `--loop-video`) pour boucler la lecture lors des campagnes longues.
+3. Démarrez l'automatisation ou surchargez dynamiquement avec `--video-mode file --video-file D:/Recordings/run01.mp4`.
 
 ### Artefacts de résultats
 

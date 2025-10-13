@@ -8,7 +8,7 @@ AutomatedAITest est un outil d'orchestration écrit en Python qui automatise de 
 
 - Lancement de PROVEtech:TA en mode automatisation gRPC avec port personnalisé.
 - Configuration de l'exécutable AI-Core, du projet et des paramètres de temporisation.
-- Mise en place de l'acheminement vidéo (périphérique, pilote, résolution) pour l'ingestion AI-Core.
+- Mise en place de l'acheminement vidéo (périphérique, webcam, vidéo enregistrée) pour l'ingestion AI-Core.
 - Démarrage des modèles de détection et surveillance des signaux AI-Core en direct.
 - Export des signaux capturés vers des artefacts CSV et JSON dans le répertoire de résultats configuré.
 - Journalisation robuste avec horodatages et paramètres critiques surchargés en ligne de commande.
@@ -55,7 +55,7 @@ Toutes les valeurs de configuration se trouvent dans `config.yaml`. Les valeurs 
 
 - `grpc` : nom d'hôte et port du serveur d'automatisation PROVEtech:TA.
 - `ai_core` : chemin de l'exécutable, fichier de configuration projet, temporisation et nombre d'instances.
-- `video` : nom de caméra, identifiant de pilote et résolution à diffuser.
+- `video` : mode d'ingestion, identifiants caméra/webcam et résolution à diffuser.
 - `test` : nom du modèle de détection, chemin de PROVEtech:TA, dossier de résultats et liste de signaux surveillés.
 - `logging` : niveau de journalisation et chemin du fichier de log.
 
@@ -86,7 +86,31 @@ python automate_test.py `
 python automate_test.py --config C:/Configs/nightly.yaml --skip-ta-launch
 ```
 
+Pour utiliser la webcam du PC ou rejouer une vidéo enregistrée sans modifier le YAML :
+
+```powershell
+# Diffuser depuis la webcam intégrée (index 0)
+python automate_test.py --video-mode webcam --webcam-index 0 --video-source PCWebcam
+
+# Rejouer un fichier vidéo en boucle pour des campagnes de régression
+python automate_test.py --video-mode file --video-file D:/Recordings/drive.mp4 --loop-video
+```
+
 Consultez `python automate_test.py --help` pour la liste complète des options, notamment `--ai-core-config`, `--ai-core-executable`, `--log-signal` et `--monitor-seconds`.
+
+### Scénarios d'ingestion vidéo
+
+#### Utiliser la webcam du PC
+
+1. Paramétrez `video.mode: "webcam"` dans `config.yaml` et indiquez `video.webcam_index` si plusieurs caméras sont détectées.
+2. Conservez `video.device_name` en phase avec le nœud logique configuré dans PROVEtech:TA.
+3. Lancez l'automatisation ou utilisez la CLI avec `--video-mode webcam --webcam-index 0`.
+
+#### Rejouer une vidéo enregistrée
+
+1. Définissez `video.mode: "file"` et pointez `video.file_path` vers le média à rejouer.
+2. Activez `video.loop_file: true` (ou `--loop-video`) pour boucler la lecture lors des longues campagnes.
+3. Démarrez le script ou surchargez dynamiquement via `--video-mode file --video-file D:/Recordings/run01.mp4`.
 
 ## Artefacts de résultats
 

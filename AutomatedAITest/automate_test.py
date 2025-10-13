@@ -64,6 +64,10 @@ class VideoSettings:
     device_name: str
     driver_id: str
     resolution: str
+    mode: str = "device"
+    file_path: Optional[Path] = None
+    webcam_index: Optional[int] = None
+    loop_file: bool = False
 
 
 @dataclass
@@ -209,10 +213,25 @@ def load_configuration(config_path: Path) -> AutomationConfig:
         parallel_instances=int(ai_core_cfg.get("parallel_instances", 1)),
     )
 
+    video_mode = str(video_cfg.get("mode", "device")).lower()
+    file_path_value = video_cfg.get("file_path")
+    file_path = Path(str(file_path_value)) if file_path_value else None
+    webcam_index_value = video_cfg.get("webcam_index")
+    webcam_index = (
+        int(webcam_index_value)
+        if webcam_index_value not in (None, "", [])
+        else None
+    )
+    loop_file = bool(video_cfg.get("loop_file", False))
+
     video_settings = VideoSettings(
         device_name=str(video_cfg.get("device_name", "")),
         driver_id=str(video_cfg.get("driver_id", "")),
         resolution=str(video_cfg.get("resolution", "")),
+        mode=video_mode,
+        file_path=file_path,
+        webcam_index=webcam_index,
+        loop_file=loop_file,
     )
 
     test_settings = TestSettings(
@@ -253,6 +272,14 @@ def apply_cli_overrides(config: AutomationConfig, args: argparse.Namespace) -> N
         config.video.driver_id = args.video_driver
     if args.resolution:
         config.video.resolution = args.resolution
+    if args.video_mode:
+        config.video.mode = args.video_mode.lower()
+    if args.video_file:
+        config.video.file_path = Path(args.video_file)
+    if args.webcam_index is not None:
+        config.video.webcam_index = args.webcam_index
+    if args.loop_video is not None:
+        config.video.loop_file = args.loop_video
     if args.timeout:
         config.ai_core.timeout_ms = args.timeout
     if args.ai_core_config:
@@ -280,6 +307,36 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--video-source", dest="video_source", type=str, help="Video source name")
     parser.add_argument("--video-driver", dest="video_driver", type=str, help="Driver identifier")
     parser.add_argument("--resolution", type=str, help="Video resolution (e.g. 1920x1080)")
+    parser.add_argument(
+        "--video-mode",
+        dest="video_mode",
+        choices=["device", "webcam", "file"],
+        help="Video ingestion mode: physical device, PC webcam, or recorded file",
+    )
+    parser.add_argument(
+        "--video-file",
+        dest="video_file",
+        type=str,
+        help="Path to recorded video when using file mode",
+    )
+    parser.add_argument(
+        "--webcam-index",
+        dest="webcam_index",
+        type=int,
+        help="Numeric index of the local webcam to bind when using webcam mode",
+    )
+    parser.add_argument(
+        "--loop-video",
+        dest="loop_video",
+        action="store_true",
+        help="Loop recorded video playback",
+    )
+    parser.add_argument(
+        "--no-loop-video",
+        dest="loop_video",
+        action="store_false",
+        help="Disable recorded video looping",
+    )
     parser.add_argument("--timeout", type=int, help="RPC timeout in milliseconds")
     parser.add_argument("--ai-core-config", dest="ai_core_config", type=str, help="AI-Core configuration file path")
     parser.add_argument("--ai-core-executable", dest="ai_core_executable", type=str, help="AI-Core executable path")
@@ -291,6 +348,7 @@ def parse_arguments(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--monitor-seconds", dest="monitor_seconds", type=int, help="Maximum monitoring duration in seconds")
     parser.add_argument("--poll-interval", dest="poll_interval", type=float, default=0.5, help="Signal polling interval in seconds")
     parser.add_argument("--no-ai-core-launch", dest="skip_ai_core", action="store_true", help="Skip launching AI-Core executable")
+    parser.set_defaults(loop_video=None)
     return parser.parse_args(argv)
 
 
@@ -367,18 +425,33 @@ class TestAutomationController:
 
         assert self.system_stub is not None and self.measure_stub is not None
         video = self.config.video
+        mode = video.mode.lower()
+        if mode not in {"device", "webcam", "file"}:
+            raise ConfigurationError(f"Unsupported video mode: {video.mode}")
         self.logger.info(
-            "Configuring video source %s (%s) at resolution %s",
+            "Configuring video source %s (%s) at resolution %s in %s mode",
             video.device_name,
             video.driver_id,
             video.resolution,
+            mode,
         )
         config_payload = {
             "device_name": video.device_name,
             "driver_id": video.driver_id,
             "resolution": video.resolution,
             "share_with_model": self.config.test.model_name,
+            "mode": mode,
         }
+        if mode == "webcam" and video.webcam_index is not None:
+            config_payload["webcam_index"] = video.webcam_index
+        if mode == "file":
+            if video.file_path is None:
+                raise ConfigurationError("Video file path must be provided when mode is 'file'")
+            file_path = video.file_path.expanduser()
+            if not file_path.exists():
+                raise ConfigurationError(f"Configured video file does not exist: {file_path}")
+            config_payload["file_path"] = str(file_path)
+            config_payload["loop_file"] = video.loop_file
         request = ta_pb2.SystemModifyVideoAudioConfigRequest(
             strSourceName=video.device_name,
             strConfig=json.dumps(config_payload),
